@@ -1,0 +1,234 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f1a"/>
+      <stop offset="100%" style="stop-color:#1a1a2e"/>
+    </linearGradient>
+    <linearGradient id="glow1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff"/>
+      <stop offset="100%" style="stop-color:#0099ff"/>
+    </linearGradient>
+    <linearGradient id="glow2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff6b35"/>
+      <stop offset="100%" style="stop-color:#f7931e"/>
+    </linearGradient>
+    <linearGradient id="glow3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00e676"/>
+      <stop offset="100%" style="stop-color:#00c853"/>
+    </linearGradient>
+    <linearGradient id="glow4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e040fb"/>
+      <stop offset="100%" style="stop-color:#aa00ff"/>
+    </linearGradient>
+    <linearGradient id="centerGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff416c"/>
+      <stop offset="100%" style="stop-color:#ff4b2b"/>
+    </linearGradient>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="bigGlow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="subtleGlow">
+      <feGaussianBlur stdDeviation="15" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.04" stroke="#ffffff" stroke-width="0.5">
+    <line x1="0" y1="0" x2="0" y2="630"/><line x1="40" y1="0" x2="40" y2="630"/>
+    <line x1="80" y1="0" x2="80" y2="630"/><line x1="120" y1="0" x2="120" y2="630"/>
+    <line x1="160" y1="0" x2="160" y2="630"/><line x1="200" y1="0" x2="200" y2="630"/>
+    <line x1="240" y1="0" x2="240" y2="630"/><line x1="280" y1="0" x2="280" y2="630"/>
+    <line x1="320" y1="0" x2="320" y2="630"/><line x1="360" y1="0" x2="360" y2="630"/>
+    <line x1="400" y1="0" x2="400" y2="630"/><line x1="440" y1="0" x2="440" y2="630"/>
+    <line x1="480" y1="0" x2="480" y2="630"/><line x1="520" y1="0" x2="520" y2="630"/>
+    <line x1="560" y1="0" x2="560" y2="630"/><line x1="600" y1="0" x2="600" y2="630"/>
+    <line x1="640" y1="0" x2="640" y2="630"/><line x1="680" y1="0" x2="680" y2="630"/>
+    <line x1="720" y1="0" x2="720" y2="630"/><line x1="760" y1="0" x2="760" y2="630"/>
+    <line x1="800" y1="0" x2="800" y2="630"/><line x1="840" y1="0" x2="840" y2="630"/>
+    <line x1="880" y1="0" x2="880" y2="630"/><line x1="920" y1="0" x2="920" y2="630"/>
+    <line x1="960" y1="0" x2="960" y2="630"/><line x1="1000" y1="0" x2="1000" y2="630"/>
+    <line x1="1040" y1="0" x2="1040" y2="630"/><line x1="1080" y1="0" x2="1080" y2="630"/>
+    <line x1="1120" y1="0" x2="1120" y2="630"/><line x1="1160" y1="0" x2="1160" y2="630"/>
+    <line x1="0" y1="0" x2="1200" y2="0"/><line x1="0" y1="40" x2="1200" y2="40"/>
+    <line x1="0" y1="80" x2="1200" y2="80"/><line x1="0" y1="120" x2="1200" y2="120"/>
+    <line x1="0" y1="160" x2="1200" y2="160"/><line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="240" x2="1200" y2="240"/><line x1="0" y1="280" x2="1200" y2="280"/>
+    <line x1="0" y1="320" x2="1200" y2="320"/><line x1="0" y1="360" x2="1200" y2="360"/>
+    <line x1="0" y1="400" x2="1200" y2="400"/><line x1="0" y1="440" x2="1200" y2="440"/>
+    <line x1="0" y1="480" x2="1200" y2="480"/><line x1="0" y1="520" x2="1200" y2="520"/>
+    <line x1="0" y1="560" x2="1200" y2="560"/><line x1="0" y1="600" x2="1200" y2="600"/>
+  </g>
+
+  <!-- Connection lines (behind nodes) -->
+  <g opacity="0.3">
+    <!-- Center to Architect (top) -->
+    <line x1="600" y1="315" x2="600" y2="155" stroke="#00d4ff" stroke-width="2" stroke-dasharray="6,4"/>
+    <!-- Center to DevOps (right) -->
+    <line x1="600" y1="315" x2="780" y2="395" stroke="#ff6b35" stroke-width="2" stroke-dasharray="6,4"/>
+    <!-- Center to Security (left) -->
+    <line x1="600" y1="315" x2="420" y2="395" stroke="#00e676" stroke-width="2" stroke-dasharray="6,4"/>
+    <!-- Center to QA (bottom) -->
+    <line x1="600" y1="315" x2="600" y2="475" stroke="#e040fb" stroke-width="2" stroke-dasharray="6,4"/>
+  </g>
+
+  <!-- Animated pulse rings around center -->
+  <circle cx="600" cy="315" r="60" fill="none" stroke="#ff416c" stroke-width="1" opacity="0.15"/>
+  <circle cx="600" cy="315" r="85" fill="none" stroke="#ff416c" stroke-width="0.5" opacity="0.08"/>
+  <circle cx="600" cy="315" r="110" fill="none" stroke="#ff416c" stroke-width="0.5" opacity="0.04"/>
+
+  <!-- Center Hub: Redis -->
+  <circle cx="600" cy="315" r="38" fill="url(#centerGlow)" opacity="0.15" filter="url(#subtleGlow)"/>
+  <circle cx="600" cy="315" r="32" fill="#1a1a2e" stroke="url(#centerGlow)" stroke-width="2"/>
+  <!-- Redis diamond icon -->
+  <g transform="translate(600,315)" fill="none" stroke="#ff4b2b" stroke-width="2" stroke-linecap="round">
+    <path d="M0,-14 L14,0 L0,14 L-14,0 Z"/>
+    <line x1="-8" y1="0" x2="8" y2="0"/>
+    <line x1="0" y1="-8" x2="0" y2="8"/>
+  </g>
+  <text x="600" y="362" text-anchor="middle" fill="#ff6b6b" font-family="monospace" font-size="11" font-weight="bold" opacity="0.8">Redis</text>
+
+  <!-- Agent 1: Architect_Zero (top) -->
+  <circle cx="600" cy="145" r="42" fill="#00d4ff" opacity="0.08" filter="url(#subtleGlow)"/>
+  <rect x="558" y="108" width="84" height="74" rx="12" fill="#1a1a2e" stroke="url(#glow1)" stroke-width="2"/>
+  <!-- Brain/planning icon -->
+  <g transform="translate(600,135)" fill="none" stroke="#00d4ff" stroke-width="1.8" stroke-linecap="round">
+    <circle cx="0" cy="0" r="10"/>
+    <path d="M-5,-3 Q-2,-8 2,-3"/>
+    <path d="M-5,3 Q-2,8 2,3"/>
+    <line x1="-3" y1="0" x2="3" y2="0"/>
+    <line x1="10" y1="-5" x2="16" y2="-8"/>
+    <line x1="10" y1="5" x2="16" y2="8"/>
+    <line x1="10" y1="0" x2="17" y2="0"/>
+  </g>
+  <text x="600" y="168" text-anchor="middle" fill="#00d4ff" font-family="monospace" font-size="9" font-weight="bold">ARCHITECT</text>
+
+  <!-- Agent 2: DevOps_Builder (right) -->
+  <circle cx="780" cy="395" r="42" fill="#ff6b35" opacity="0.08" filter="url(#subtleGlow)"/>
+  <rect x="738" y="358" width="84" height="74" rx="12" fill="#1a1a2e" stroke="url(#glow2)" stroke-width="2"/>
+  <!-- Wrench/build icon -->
+  <g transform="translate(780,385)" fill="none" stroke="#ff6b35" stroke-width="1.8" stroke-linecap="round">
+    <rect x="-12" y="-8" width="24" height="16" rx="2"/>
+    <line x1="-12" y1="-3" x2="12" y2="-3"/>
+    <line x1="-6" y1="1" x2="6" y2="1"/>
+    <line x1="-3" y1="5" x2="3" y2="5"/>
+    <circle cx="8" cy="-11" r="3"/>
+  </g>
+  <text x="780" y="418" text-anchor="middle" fill="#ff6b35" font-family="monospace" font-size="9" font-weight="bold">DEVOPS</text>
+
+  <!-- Agent 3: Security_Sentinel (left) -->
+  <circle cx="420" cy="395" r="42" fill="#00e676" opacity="0.08" filter="url(#subtleGlow)"/>
+  <rect x="378" y="358" width="84" height="74" rx="12" fill="#1a1a2e" stroke="url(#glow3)" stroke-width="2"/>
+  <!-- Shield icon -->
+  <g transform="translate(420,385)" fill="none" stroke="#00e676" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0,-12 L12,-6 L12,3 Q12,10 0,14 Q-12,10 -12,3 L-12,-6 Z"/>
+    <polyline points="-4,1 -1,5 5,-3"/>
+  </g>
+  <text x="420" y="418" text-anchor="middle" fill="#00e676" font-family="monospace" font-size="9" font-weight="bold">SECURITY</text>
+
+  <!-- Agent 4: QA_Tester (bottom) -->
+  <circle cx="600" cy="475" r="42" fill="#e040fb" opacity="0.08" filter="url(#subtleGlow)"/>
+  <rect x="558" y="438" width="84" height="74" rx="12" fill="#1a1a2e" stroke="url(#glow4)" stroke-width="2"/>
+  <!-- Checkmark/test icon -->
+  <g transform="translate(600,465)" fill="none" stroke="#e040fb" stroke-width="1.8" stroke-linecap="round">
+    <rect x="-11" y="-10" width="22" height="18" rx="2"/>
+    <polyline points="-5,-1 -2,3 6,-5"/>
+    <line x1="-11" y1="-5" x2="11" y2="-5"/>
+  </g>
+  <text x="600" y="498" text-anchor="middle" fill="#e040fb" font-family="monospace" font-size="9" font-weight="bold">QA TESTER</text>
+
+  <!-- Small data particles on connections -->
+  <g opacity="0.6">
+    <circle cx="600" cy="230" r="2.5" fill="#00d4ff"/>
+    <circle cx="695" cy="358" r="2.5" fill="#ff6b35"/>
+    <circle cx="505" cy="358" r="2.5" fill="#00e676"/>
+    <circle cx="600" cy="400" r="2.5" fill="#e040fb"/>
+  </g>
+
+  <!-- Infrastructure icons (right side, subtle) -->
+  <g transform="translate(960,180)" opacity="0.25">
+    <!-- Server rack icon -->
+    <rect x="-20" y="-25" width="40" height="50" rx="4" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+    <line x1="-15" y1="-12" x2="15" y2="-12" stroke="#ffffff" stroke-width="1"/>
+    <line x1="-15" y1="0" x2="15" y2="0" stroke="#ffffff" stroke-width="1"/>
+    <line x1="-15" y1="12" x2="15" y2="12" stroke="#ffffff" stroke-width="1"/>
+    <circle cx="12" cy="-18" r="2" fill="#00e676"/>
+    <circle cx="12" cy="-6" r="2" fill="#00e676"/>
+    <circle cx="12" cy="6" r="2" fill="#ff6b35"/>
+  </g>
+  <text x="960" y="220" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="9" opacity="0.25">Proxmox</text>
+
+  <g transform="translate(960,300)" opacity="0.25">
+    <!-- K8s wheel icon (simplified) -->
+    <circle cx="0" cy="0" r="16" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="0" cy="0" r="5" fill="none" stroke="#ffffff" stroke-width="1"/>
+    <line x1="0" y1="-5" x2="0" y2="-16" stroke="#ffffff" stroke-width="1"/>
+    <line x1="4.3" y1="2.5" x2="13.9" y2="8" stroke="#ffffff" stroke-width="1"/>
+    <line x1="-4.3" y1="2.5" x2="-13.9" y2="8" stroke="#ffffff" stroke-width="1"/>
+    <line x1="4.3" y1="-2.5" x2="13.9" y2="-8" stroke="#ffffff" stroke-width="1"/>
+    <line x1="-4.3" y1="-2.5" x2="-13.9" y2="-8" stroke="#ffffff" stroke-width="1"/>
+    <line x1="0" y1="5" x2="0" y2="16" stroke="#ffffff" stroke-width="1"/>
+  </g>
+  <text x="960" y="332" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="9" opacity="0.25">Kubernetes</text>
+
+  <g transform="translate(960,410)" opacity="0.25">
+    <!-- Terraform icon (simplified) -->
+    <g fill="#ffffff">
+      <rect x="-10" y="-14" width="8" height="8" transform="skewY(0)"/>
+      <rect x="0" y="-9" width="8" height="8"/>
+      <rect x="0" y="3" width="8" height="8"/>
+      <rect x="-10" y="-2" width="8" height="8"/>
+    </g>
+  </g>
+  <text x="960" y="432" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="9" opacity="0.25">Terraform</text>
+
+  <!-- Title text (left side) -->
+  <text x="80" y="170" fill="#ffffff" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="38" font-weight="bold" letter-spacing="-0.5">
+    <tspan x="80" dy="0">AI MiniLab</tspan>
+  </text>
+  <text x="80" y="210" fill="#ffffff" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18" opacity="0.6">
+    <tspan x="80" dy="0">Autonomous SRE Team Experiment</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <line x1="80" y1="250" x2="310" y2="250" stroke="#ffffff" stroke-width="0.5" opacity="0.15"/>
+  <text x="80" y="285" fill="#ffffff" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" opacity="0.5" letter-spacing="0.5">
+    <tspan x="80" dy="0">4 LLM Agents coordinate to</tspan>
+    <tspan x="80" dy="24">provision infrastructure</tspan>
+  </text>
+
+  <!-- Tech stack pills -->
+  <g transform="translate(80,410)">
+    <rect x="0" y="0" width="72" height="24" rx="12" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.2"/>
+    <text x="36" y="16" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="10" opacity="0.4">GPT-5-mini</text>
+
+    <rect x="82" y="0" width="72" height="24" rx="12" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.2"/>
+    <text x="118" y="16" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="10" opacity="0.4">LangChain</text>
+
+    <rect x="164" y="0" width="55" height="24" rx="12" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.2"/>
+    <text x="191" y="16" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="10" opacity="0.4">Docker</text>
+
+    <rect x="229" y="0" width="55" height="24" rx="12" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.2"/>
+    <text x="256" y="16" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="10" opacity="0.4">Redis</text>
+  </g>
+
+  <!-- Bottom URL bar -->
+  <rect x="0" y="590" width="1200" height="40" fill="#000000" opacity="0.3"/>
+  <text x="600" y="614" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="13" opacity="0.4">github.com/beniamin/sre-ai-team-experiment</text>
+</svg>

@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 
 # Configuration
-REDIS_HOST = "localhost" # For local testing, or "redis-broker" inside docker
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = 6379
 CHANNEL = "agent_channel"
 HISTORY_KEY = "chat_history"

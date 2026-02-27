@@ -1,5 +1,9 @@
 # AI MiniLab — Autonomous SRE Team Experiment
 
+<p align="center">
+  <img src="social-card.svg" alt="AI MiniLab — 4 LLM Agents coordinate to provision infrastructure" width="100%"/>
+</p>
+
 An experiment in building a team of 4 LLM-powered AI agents that communicate over Redis pub/sub to autonomously provision and harden real infrastructure on a 2-node Proxmox VE 9 cluster.
 
 Read the full experiment write-up in [ARTICLE.md](ARTICLE.md).
@@ -21,18 +25,18 @@ This project explores two questions:
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌────────────────────┐
+┌──────────────┐     ┌───────────────────┐     ┌────────────────────┐
 │ User Console │────>│   Redis Broker    │<--->│  Architect_Zero    │
 │  (stdin/tty) │     │  (pub/sub + hist) │     │  (Planner/Coord)   │
 └──────────────┘     └──────┬───┬───┬────┘     └────────────────────┘
                             │   │   │
               ┌─────────────┘   │   └──────────────┐
               v                 v                   v
-    ┌──────────────────┐ ┌─────────────┐ ┌──────────────────┐
+    ┌───────────────────┐ ┌─────────────┐ ┌──────────────────┐
     │  DevOps_Builder   │ │  Security   │ │    QA_Tester     │
     │  (Executor)       │ │  Sentinel   │ │   (Validator)    │
     │  terraform/ansible│ │  (Reviewer) │ │   (curl/ssh)     │
-    └──────────────────┘ └─────────────┘ └──────────────────┘
+    └───────────────────┘ └─────────────┘ └──────────────────┘
 ```
 
 ### Agents
