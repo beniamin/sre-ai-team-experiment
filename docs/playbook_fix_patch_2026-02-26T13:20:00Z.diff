@@ -1,0 +1,28 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+     - name: Ensure /etc/nftables.d exists
+       ansible.builtin.file:
+         path: /etc/nftables.d
+         state: directory
+         mode: '0755'
+       become: true
++
++    - name: Normalize admin_allowed_ips to a list
++      ansible.builtin.set_fact:
++        admin_allowed_ips_normalized: >-
++          {{ (admin_allowed_ips if (admin_allowed_ips is iterable and admin_allowed_ips is not string) else (admin_allowed_ips | default('') | string).split(',')) | map('trim') | list }}
++      become: true
+@@
+-      ansible.builtin.template:
+-        src: "templates/50-proxmox-mgmt.nft.j2"
+-        dest: /etc/nftables.d/50-proxmox-mgmt.nft
+-        mode: '0644'
++      ansible.builtin.template:
++        src: "templates/50-proxmox-mgmt.nft.j2"
++        dest: /etc/nftables.d/50-proxmox-mgmt.nft
++        mode: '0644'
++      vars:
++        admin_allowed_ips: "{{ admin_allowed_ips_normalized }}"
+       become: true
+*** End Patch

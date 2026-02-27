@@ -1,0 +1,31 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+-    - name: Render nftables management table
+-      ansible.builtin.copy:
+-        dest: /etc/nftables.d/50-proxmox-mgmt.nft
+-        content: |
+-          table inet proxmox_mgmt {
+-            chain input {
+-              type filter hook input priority 0;
+-              policy drop;
+-              # allow loopback
+-              iif lo accept;
+-              # allow established
+-              ct state established,related accept;
+-{% for ip in admin_allowed_ips %}
+-              ip saddr {{ ip }} tcp dport { {{ management_ports_tcp | join(', ') }} } accept;
+-              ip saddr {{ ip }} udp dport { {{ corosync_udp_ports | join(', ') }} } accept;
+-{% endfor %}
+-              # allow ICMP for diagnostics
+-              ip protocol icmp accept;
+-            }
+-          }
+-      become: true
++    - name: Render nftables management table from template
++      ansible.builtin.template:
++        src: "templates/50-proxmox-mgmt.nft.j2"
++        dest: /etc/nftables.d/50-proxmox-mgmt.nft
++        mode: '0644'
++      become: true
+*** End Patch

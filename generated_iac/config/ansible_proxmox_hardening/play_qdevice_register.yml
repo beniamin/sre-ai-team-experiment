@@ -1,0 +1,32 @@
+---
+- name: Register corosync qdevice with witness
+  hosts: proxmox
+  become: true
+  vars:
+    witness_ip: "192.168.10.210"
+    qnetd_port: 5405
+  tasks:
+    - name: Check pvecm status
+      command: pvecm status
+      register: pvecm_out
+      failed_when: false
+
+    - name: Show pvecm status
+      debug:
+        var: pvecm_out.stdout_lines
+
+    - name: Ensure qdevice is registered (idempotent)
+      command: pvecm qdevice add {{ witness_ip }}
+      register: qdevice_add
+      failed_when: "'already exists' not in qdevice_add.stderr and qdevice_add.rc != 0"
+      changed_when: "'already exists' not in qdevice_add.stderr and qdevice_add.rc == 0"
+
+    - name: Verify pvecm has 3 votes
+      command: pvecm status
+      register: pvecm_verify
+      failed_when: "'Quorum: Yes' not in pvecm_verify.stdout and pvecm_verify.rc != 0"
+
+    - name: Parse votes and fail if <3
+      shell: "pvecm status | grep Votes"
+      register: votes
+      failed_when: "'Votes' not in votes.stdout or (votes.stdout | regex_search('(\\d+)') | int) < 3"

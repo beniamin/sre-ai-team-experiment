@@ -1,0 +1,34 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+-    - name: Render nftables management table from template
+-      ansible.builtin.template:
+-        src: "templates/50-proxmox-mgmt.nft.j2"
+-        dest: /etc/nftables.d/50-proxmox-mgmt.nft
+-        mode: '0644'
+-      become: true
+-
+-    - name: Ensure nftables includes proxmox-mgmt table
+-      ansible.builtin.command:
+-        cmd: nft -f /etc/nftables.d/50-proxmox-mgmt.nft
+-      become: true
++    - name: Render nftables management table from template
++      ansible.builtin.template:
++        src: "templates/50-proxmox-mgmt.nft.j2"
++        dest: /etc/nftables.d/50-proxmox-mgmt.nft
++        mode: '0644'
++      become: true
++
++    - name: Validate rendered nft file syntax on controller
++      ansible.builtin.command:
++        cmd: nft -c -f /etc/nftables.d/50-proxmox-mgmt.nft
++      delegate_to: localhost
++      register: nft_check
++      failed_when: nft_check.rc != 0
++
++    - name: Ensure nftables includes proxmox-mgmt table (load rules)
++      ansible.builtin.command:
++        cmd: nft -f /etc/nftables.d/50-proxmox-mgmt.nft
++      become: true
++      when: nft_check.rc == 0
+*** End Patch

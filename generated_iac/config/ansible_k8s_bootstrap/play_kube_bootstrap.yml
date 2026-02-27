@@ -1,0 +1,61 @@
+---
+- name: Bootstrap HA Kubernetes via kubeadm (gated)
+  hosts: k8s
+  become: true
+  vars:
+    enable_ha: false
+    metallb_ip_pool: "<METALLB_IP_POOL>"
+  tasks:
+    - name: Abort if enable_ha is not true
+      fail:
+        msg: "HA bootstrap is gated. Set enable_ha: true only after witness/STONITH verification."
+      when: not enable_ha
+
+    - name: Initialize control-plane on first master
+      when: inventory_hostname == groups['k8s'][0]
+      shell: |
+        kubeadm init --control-plane-endpoint "LOAD_BALANCER_DNS:6443" --upload-certs --pod-network-cidr=10.244.0.0/16
+      register: kubeadm_init
+
+    - name: Copy kubeconfig to user
+      when: inventory_hostname == groups['k8s'][0]
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+
+    - name: Join additional control-plane nodes
+      when: inventory_hostname != groups['k8s'][0]
+      shell: |
+        kubeadm join --control-plane --token <TOKEN> <LOAD_BALANCER>:6443 --discovery-token-ca-cert-hash sha256:<HASH> --certificate-key <CERT_KEY>
+      register: kubeadm_join
+
+    - name: Deploy MetalLB (manifest)
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.10/config/manifests/metallb-native.yaml
+        cat <<EOF | kubectl apply -f -
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: lb-pool
+          namespace: metallb-system
+        spec:
+          addresses:
+          - "{{ metallb_ip_pool }}"
+        EOF
+      when: inventory_hostname == groups['k8s'][0]
+
+    - name: Deploy NGINX ingress
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+      when: inventory_hostname == groups['k8s'][0]
+
+    - name: Deploy hello-world app
+      shell: |
+        kubectl create deployment hello-world --image=gcr.io/google-samples/hello-app:1.0 || true
+        kubectl expose deployment hello-world --type=ClusterIP --port=8080 || true
+      when: inventory_hostname == groups['k8s'][0]
+
+    - name: Note PV strategy placeholder
+      debug:
+        msg: "PV/Storage strategy must be chosen (ZFS CSI, local-path, or NFS). Update playbooks accordingly."

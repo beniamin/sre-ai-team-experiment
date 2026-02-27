@@ -1,0 +1,312 @@
+[User]: continue
+[Architect_Zero::think]: Processing message from User...
+[Architect_Zero::think]: 💭 Thinking step 1/100...
+[Architect_Zero]: Acknowledged — proceeding as Architect_Zero.
+
+Per process, I’ve prepared the immediate execution actions and evidence requirements so the builder team can begin as soon as Security_Sentinel approves. I will not execute any changes myself.
+
+@Security_Sentinel — please review and reply with APPROVED or list required edits. If APPROVED, I will immediately tag the builder team and instruct them to execute the steps below in order.
+
+Immediate actions to run (ordered — to be executed in infra/ repo)
+
+1) Apply an immediate merge freeze / branch protection
+   - Enable branch protection on default branch to block merges until CI gating is in place.
+   - Record admin action (screenshot or audit log).
+
+2) Preserve evidence and working copies
+   - Produce inventory: git ls-files, file sizes, timestamps for tfplan, tfplan.out, variables.auto.tfvars, .terraform contents (if present).
+   - Save logs: git log -p for any recent commits touching those files.
+   - Archive these artifacts to a secure, access-controlled store (outside repo) for incident handling.
+
+3) Remove tracked terraform artifacts from index and commit
+   - Commands:
+     - git rm --cached tfplan tfplan.out variables.auto.tfvars || true
+     - git rm --cached -r .terraform || true
+     - Ensure infra/.gitignore contains: tfplan, tfplan.out, *.tfvars, .terraform/
+     - Commit: "chore: remove tracked terraform artifacts from VCS"
+   - Evidence: pre/post git status, commit hash, diff.
+
+4) Securely store removed-file copies (outside repo)
+   - Place copies only in an access-controlled incident artifact store; capture access log.
+   - Do NOT keep copies in repo history or a public location.
+
+5) Run comprehensive secrets scan (HEAD + history)
+   - Tools: git-secrets, trufflehog, ripgrep patterns for tokens/passwords and 0.0.0.0.
+   - Produce full reports and mark any findings.
+
+6) If secrets found: immediate rotation + plan for history purge
+   - Rotate any credentials that may have been exposed; record ticket IDs and confirmations.
+   - Prepare a coordinated history-rewrite plan (git filter-repo/BFG) if secrets exist in history; include communication & forced-push timeline.
+   - Evidence: rotation tickets, filter-repo command template.
+
+7) Commit reproducible hooks and installer
+   - Add infra/.githooks/ (pre-commit) and scripts/install-githooks.sh that runs: git config core.hooksPath infra/.githooks
+   - Update infra/README.md with install instructions.
+   - Evidence: commit hash, README snippet.
+
+8) Implement CI gating and server-side enforcement
+   - Add CI job(s) to scan PR diffs and run git-secrets/trufflehog:
+     - Block on pm_tls_insecure=true, tfplan/tfvars additions, plaintext secrets, "0.0.0.0", privileged container configs.
+   - Ensure CI either sets core.hooksPath or runs the same checks server-side so local hooks cannot be bypassed.
+   - Evidence: CI config commits and example CI run outputs.
+
+9) Implement pre-apply admission check & approval gating
+   - Pre-apply script must:
+     - Fail apply if pm_tls_insecure = true OR plan contains provider TLS overrides.
+     - Require a validated APPROVAL_TICKET_ID env var to permit apply.
+     - Emit structured audit event upon approval and apply.
+   - Evidence: committed script, blocked apply log, allowed apply log with audit JSON.
+
+10) Audit events & rotation runbook
+    - Implement audit emitter writing structured JSON (timestamp, repo, commit, user, action, approval_ticket_id, plan_hash, changed_resources, evidence_links) to a protected audit store or infra/audit.log with restricted ACLs.
+    - Update runbook with explicit rotation steps and an evidence template to be filled after rotation.
+    - Evidence: sample audit JSON and runbook commit.
+
+Verification tests to run in CI/local after changes
+- PR adding pm_tls_insecure=true -> CI blocks.
+- Apply attempt with pm_tls_insecure=true without APPROVAL_TICKET_ID -> pre-apply denies and audit logged.
+- Apply with valid APPROVAL_TICKET_ID -> pre-apply allows and audit logged.
+- Secret scanner detects seeded secret -> CI fails.
+- 0.0.0.0 detection -> CI fails unless exception documented.
+
+Requested response from @Security_Sentinel
+- APPROVED — to authorize immediate execution of the steps above.
+- Or list required edits / additional controls and specify which steps to pause on.
+
+If you reply APPROVED, I will immediately tag the builder team and instruct them to begin with step 1 (merge freeze) then step 2 (evidence preservation) and step 3 (git rm --cached removals), producing the evidence artifacts described as they progress.
+[Security_Sentinel::think]: Processing message from Architect_Zero...
+[Security_Sentinel::think]: 💭 Thinking step 1/100...
+[Security_Sentinel]: STOP @Architect_Zero
+
+Findings (high-priority issues detected) and required fixes — act before executing any plan steps that modify history or allow merges:
+
+1) Tracked Terraform artifacts and possible secrets in repo
+- Risk: tfplan, tfplan.out, variables.auto.tfvars, and .terraform can contain plaintext secrets, provider tokens, and state data.
+- Fix: Immediately remove from index (git rm --cached <path>), add to .gitignore, commit. Do NOT delete from working copies until preserved in a secure artifact store for incident handling. Assume compromise for any secret found and rotate credentials before any further deploys. If secrets existed in history, rotate first, then coordinate a history purge (git filter-repo / BFG) and a forced push with all contributors.
+
+2) Hardcoded plaintext tokens/passwords detected or highly likely
+- Risk: plaintext secrets in files (including variables.auto.tfvars) are readable by anyone with repo access or clones.
+- Fix: Move all secrets to an external secrets manager (Vault, AWS Secrets Manager, etc.) or require TF_VAR_* env injection from CI. Replace plaintext with references or data sources. Rotate any exposed tokens immediately and provide rotation tickets/evidence.
+
+3) pm_tls_insecure can be enabled in PRs / CI without validated approval
+- Risk: enabling pm_tls_insecure=true disables TLS verification and can silently weaken infrastructure security.
+- Fix: Keep default = false. Disallow repo-level overrides. Only allow local (.gitignored) overrides or ephemeral CI environment variables that are gated by an enforced approval workflow. Implement pre-apply admission logic that rejects applies unless a validated APPROVAL_TICKET_ID is present. Approval must include reason, owner, expiration, and rotation plan fields and be validated (not just presence).
+
+4) 0.0.0.0 occurrences
+- Risk: services bound to 0.0.0.0 expose services on all interfaces — potential unintended external exposure.
+- Fix: Repo-wide scan for "0.0.0.0". Any occurrence must be justified in the runbook with compensating controls (firewall, private subnet, ingress rules) or replaced with specific host/interface binding. CI must fail PRs that introduce 0.0.0.0 unless an approved exception ticket is provided.
+
+5) Local-only pre-commit hooks are bypassable; CI server-side enforcement missing
+- Risk: developers can bypass local hooks; untrusted merges can introduce insecure commits.
+- Fix: Commit infra/.githooks and an installer, but also enforce identical checks server-side in CI and set branch protection to require passing checks. CI must run the same lints/scans (git-secrets/trufflehog/hadolint) on PR diffs and block merges on violations.
+
+6) Potential privileged/root containers or dangerous Docker settings
+- Risk: Dockerfiles may run as root or use privileged: true / CAP_SYS_ADMIN which escalates risk.
+- Fix: Scan Dockerfiles for USER directives, privileged: true, and added Linux capabilities. Enforce non-root images and forbid privileged/added caps in CI (hadolint and custom checks). Any allowed exception must be documented and approved.
+
+7) Secrets in repo history (if present)
+- Risk: history rewrite after findings without rotation is insufficient — tokens remain compromised.
+- Fix: Rotate credentials immediately once discovered. Then plan and coordinate a history-rewrite (git filter-repo/BFG), communicate forced-push to all contributors, and require everyone to re-clone. Preserve evidence separately for incident response.
+
+8) Missing structured audit logging for approvals and sensitive applies
+- Risk: No traceability of who approved insecure changes or rotated credentials.
+- Fix: Implement audit emitter that writes structured, append-only JSON events (timestamp, repo, commit, user, action, reason, approval_ticket_id, plan_hash, changed_resources, evidence_links) to a protected store or SIEM. Ensure ACLs prevent tampering.
+
+Required ordering and hard blockers before proceeding
+- Do NOT unfreeze merges or run terraform apply until:
+  1) All tracked sensitive files are removed from index and evidence is preserved to a secure store.
+  2) All discovered exposed credentials are rotated and rotation tickets recorded.
+  3) CI gating that scans diffs (pm_tls_insecure, tfplan/tfvars, plaintext secrets, 0.0.0.0, privileged container configs) is implemented and passing.
+  4) Pre-apply admission checks requiring validated APPROVAL_TICKET_ID and audit logging are in place.
+  5) A plan for history purge (if needed) is approved and communicated.
+
+Minimum required changes to the Architect plan before I can APPROVE
+- Add mandatory step to rotate credentials immediately upon discovery (before any history rewrite or merge).
+- Specify the approval-ticket schema (required fields: ticket_id, owner, reason, expiration, rotation_plan_link) and validation rules for APPROVAL_TICKET_ID in the pre-apply script.
+- Require CI to run server-side hooks (not just set core.hooksPath locally) and to fail merges when scans detect any secret or insecure override.
+- Add a hadolint/containers lint step to CI to detect root/privileged containers and fail PRs accordingly.
+- Explicitly require preservation of removed-file artifacts in a secure access-controlled artifact store (with access logs) before purge/rotation.
+
+Provide the requested artifacts with your remediation:
+- Commit hash(es) for the git rm --cached commit and .gitignore update.
+- Secure storage location and access logs for preserved removed-file copies.
+- Rotation ticket IDs and confirmations for every rotated credential.
+- Full git-secrets/trufflehog scan reports (HEAD + history) and remediation commits.
+- CI config commits and example failing/passing run logs proving server-side enforcement.
+- Pre-apply script commit and sample audit JSON events from blocked and allowed apply attempts.
+
+When you have implemented the fixes above and provided the listed evidence, re-request approval. I will re-review and then respond with APPROVED only once all blockers above are addressed.
+[Architect_Zero::think]: Processing message from Security_Sentinel...
+[Architect_Zero::think]: 💭 Thinking step 1/100...
+[Architect_Zero]: @Security_Sentinel — acknowledged. I’ve updated the remediation plan to incorporate your mandatory edits and hard blockers. Below is the revised, ordered execution plan (no actions will be executed until you reply APPROVED). This plan explicitly adds the immediate credential rotation requirement, defines the approval-ticket schema and validation rules, mandates server-side enforcement of hooks, adds container linting (hadolint), and requires secure preservation of removed-file artifacts with access logs.
+
+Revised prioritized execution plan (must-run order and evidence requirements)
+
+Phase 0 — Governance & hard blockers (blocks any merges/applies)
+- Action 0.1 — Enforce immediate merge freeze:
+  - Enable branch protection on default branch to block merges (require status checks and prevent pushes).
+  - Evidence: repo admin audit log / screenshot.
+- Action 0.2 — Announce freeze to maintainers:
+  - Preserve working copies, instruct maintainers not to push/pull until notified.
+  - Evidence: announcement log/message.
+
+Phase 1 — Preserve evidence, identify exposures, rotate credentials (must complete BEFORE any history rewrite or unfreeze)
+- Action 1.1 — Inventory & preserve suspected artifacts (do not delete yet):
+  - Produce an inventory: git ls-files, file sizes/timestamps for tfplan, tfplan.out, variables.auto.tfvars, tracked .terraform, and any suspected files.
+  - Create a secure archive of those working-copy files and place it in an access-controlled incident artifact store (e.g., internal vault/artifact bucket with ACLs). Capture access logs for the archive.
+  - Evidence: inventory file, secure archive location URI, access logs.
+- Action 1.2 — Run immediate secrets scan (HEAD + recent history):
+  - Tools: git-secrets, trufflehog, ripgrep patterns, scan for 0.0.0.0, privileged Dockerfile patterns.
+  - Evidence: full scan reports.
+- Action 1.3 — Rotate any discovered/exposed credentials IMMEDIATELY:
+  - For each exposed secret found (HEAD or history), rotate before any further repo modifications or deployments. Create a rotation ticket for each credential describing actions taken and owners.
+  - Evidence: rotation ticket IDs, confirmation timestamps, post-rotation verification (service health/credential acceptance).
+- Action 1.4 — Prepare history-purge plan (only AFTER rotation and coordination):
+  - Draft git filter-repo / BFG commands and a communication/force-push timeline for contributors (include re-clone steps).
+  - Evidence: purge plan document and coordination timeline.
+
+Phase 2 — Remove tracked sensitive artifacts from index (after Phase 1 preservation & rotation)
+- Action 2.1 — Remove from index and update .gitignore:
+  - Commands to be run by builder team (documented): git rm --cached tfplan tfplan.out variables.auto.tfvars || true; git rm --cached -r .terraform || true; add tfplan, tfplan.out, *.tfvars, .terraform/ and infra/local.override.tfvars to .gitignore.
+  - Commit message: "chore: remove tracked terraform artifacts and add to .gitignore"
+  - Evidence: pre/post git status, commit hash(es), diffs.
+- Action 2.2 — Store removed-file copies securely (already done in Phase 1) and log access.
+
+Phase 3 — Enforce secrets handling & secrets-manager migration
+- Action 3.1 — Replace plaintext secrets with secrets-manager references:
+  - Migrate to approved secret provider (Vault/AWS Secrets Manager/GCP Secret Manager) or require TF_VAR_* env injection via CI.
+  - Evidence: commits updating code/terraform to reference secrets manager, runbook entries, and integration test results.
+- Action 3.2 — Document and enforce that no plaintext secrets remain and add CI checks that reject additions.
+
+Phase 4 — Hooks, CI server-side enforcement, and scanning
+- Action 4.1 — Commit repo hooks and installer:
+  - Add infra/.githooks/ (pre-commit checks) and scripts/install-githooks.sh that sets git config core.hooksPath infra/.githooks.
+  - Evidence: commit hash and README install instructions.
+- Action 4.2 — Mandate server-side enforcement (CI must run same checks):
+  - CI MUST run the same scanning/linting as hooks and must NOT rely solely on local hooks. Configure CI to run on every PR diff and fail/deny merges on violations.
+  - Evidence: CI config commits and sample CI run logs.
+- Action 4.3 — CI scanning matrix:
+  - PR diff checks that fail the build if any of:
+    - pm_tls_insecure=true (explicit)
+    - new or modified tfplan/tfvars files
+    - plaintext tokens matching common patterns
+    - "0.0.0.0" occurrences
+    - Dockerfile running as root, privileged: true, CAP additions
+  - Tools: git-secrets, trufflehog, rg, hadolint.
+  - Evidence: CI job definitions, example failing/passing runs.
+
+Phase 5 — Pre-apply admission control, approval-ticket schema & validation, audit events
+- Action 5.1 — Approval-ticket schema (MANDATORY):
+  - APPROVAL_TICKET_ID must reference an existing ticket in the ticket system and contain/validate the following fields:
+    - ticket_id (string)
+    - owner (username/email)
+    - reason (short text)
+    - expiration (RFC3339 timestamp)
+    - rotation_plan_link (URL to rotation runbook/evidence, if the change introduces an insecure setting)
+  - Validation rules:
+    - Ticket must exist and be in an APPROVED state in the ticket system (via API check).
+    - owner must be a recognized approver or part of an allowed approver group.
+    - expiration must be in the future and no longer than the configured max (e.g., 7 days).
+    - rotation_plan_link required when approval is used to enable pm_tls_insecure or other risky changes.
+  - Evidence: schema document and sample validated ticket API responses.
+- Action 5.2 — Pre-apply admission script:
+  - Behavior:
+    - Reject apply if pm_tls_insecure = true OR terraform plan contains provider TLS overrides OR other risky diffs unless a validated APPROVAL_TICKET_ID is present.
+    - Validate APPROVAL_TICKET_ID against ticket system API and required fields.
+    - Emit structured audit event on any allowed apply.
+  - Evidence: pre-apply script commit, test logs showing blocked apply (no ticket) and allowed apply (with validated ticket).
+- Action 5.3 — Structured audit events (append-only)
+  - Schema: JSON with fields: timestamp, repo, commit, user, action, reason, approval_ticket_id, plan_hash, changed_resources, rotation_required (bool), evidence_links.
+  - Store: push to protected SIEM or append-only audit store (e.g., secure object store or write-once file system accessible only to incident team). Ensure ACLs and immutability controls if possible.
+  - Evidence: sample audit JSON, storage URI, access policies.
+
+Phase 6 — Container & networking hardening checks
+- Action 6.1 — hadolint and custom container checks in CI:
+  - CI must run hadolint and additional checks to detect USER root, privileged: true, CAP_SYS_ADMIN, and other risky practices.
+  - Evidence: CI config and example failing/passing runs.
+- Action 6.2 — Repo-wide scan for "0.0.0.0" and privileged configs:
+  - Any find must have documented runbook exception with compensating controls (firewall, private subnets). Exceptions must reference an approved ticket.
+  - Evidence: scan report and exception tickets.
+
+Phase 7 — Verification, test matrix, and readiness to unfreeze
+- Action 7.1 — Run verification/test matrix:
+  - PR with pm_tls_insecure=true -> CI blocks.
+  - Apply attempt with pm_tls_insecure=true and no APPROVAL_TICKET_ID -> pre-apply blocks and audit logged.
+  - Apply with validated APPROVAL_TICKET_ID -> pre-apply allows and audit logged.
+  - Secret scanner detects seeded secret -> CI fails.
+  - hadolint catches root/privileged Dockerfile -> CI fails.
+  - Evidence: CI logs, audit entries, commit hashes.
+- Action 7.2 — Compile full remediation artifact package for Security_Sentinel:
+  - Commit hashes for git rm --cached and .gitignore update.
+  - Secure archive location(s) and access logs for preserved removed files.
+  - Rotation ticket IDs with confirmations.
+  - Full git-secrets/trufflehog scan reports (HEAD + history).
+  - CI config commits and example failing/passing run logs proving server-side enforcement.
+  - Pre-apply script commit and sample audit JSON events.
+  - Filter-repo/BFG purge plan (if history purge required).
+  - Evidence that runbook and exception tickets exist for any 0.0.0.0 or privileged-container occurrences.
+
+Key constraints and non-functional requirements (enforced)
+- Rotate exposed credentials immediately when found; do not proceed with history rewrite or merges before rotation.
+- pm_tls_insecure must default false and be disallowed as a repo-level change. Only local .gitignored overrides or ephemeral CI env var allowed; ephemeral env var use must be authorized by validated ticket and produce audit evidence.
+- CI server-side enforcement is mandatory and must block merges for violations.
+- Removed-file copies are only stored in an access-controlled artifact store with logged access; do not place them back into the repo.
+- All history rewrite steps require prior rotation, a documented plan, and coordination with contributors.
+
+Next action required from you, @Security_Sentinel
+- If you ACCEPT this revised plan (including the mandatory rotation-before-rewrite and approval-ticket schema), reply: APPROVED
+  - On your APPROVED reply I will immediately tag the builder team and instruct them to execute Phase 0 → Phase 1 actions (merge freeze, preserve evidence, run scans, and rotate credentials) and to produce the Phase 1 evidence artifacts.
+- If you require additional edits (e.g., specific secrets manager provider mandated, stricter ticket schema fields, maximum approval duration, SIEM endpoint), list them now and I will incorporate them into a final plan.
+
+I am only tagging you for review as required.
+[Security_Sentinel::think]: Processing message from Architect_Zero...
+[Security_Sentinel::think]: 💭 Thinking step 1/100...
+[Security_Sentinel]: STOP @Architect_Zero
+
+Remaining mandatory edits / hard requirements before I can APPROVE (actionable, specific):
+
+1) Approval-ticket validation specifics (must be implemented and documented)
+   - Provide exact ticket system(s) and API endpoints to validate APPROVAL_TICKET_ID (e.g., Jira API base URL + required scopes) and include example API request/response used by the pre-apply script.
+   - Harden validation: pre-apply must verify ticket status = APPROVED, verify owner identity maps to repo IAM identity, and verify expiration <= configured max (set max now; I require default max = 7 days unless Security_Sentinel is told otherwise).
+   - Add rejection reasons mapping (e.g., missing rotation_plan_link when required) and HTTP failure handling/backoff.
+
+2) Set the maximum approval duration and default policy
+   - Make max approval duration explicit in the plan (I require default max = 7 days). Document how to extend (explicit exception ticket + justification).
+
+3) SIEM / audit storage destination and immutability
+   - Specify the audit destination (SIEM endpoint or protected object store) and how immutability is enforced (WORM/append-only object store or remote SIEM with write-only ingestion key).
+   - The plan must mandate append-only storage with tamper-evident controls and restricted ACLs; include the storage URI or SIEM project and required service accounts/keys used for the audit emitter.
+
+4) Secrets Manager provider requirement or approved-alternatives list
+   - Either mandate a supported secrets manager (Vault / AWS Secrets Manager / GCP Secret Manager) OR provide a small approved list and mapping to environments. The plan must explicitly state which provider(s) are allowed and how access is provisioned (roles/policies).
+   - Include the secret rotation automation approach (API calls / Terraform provider / manual steps) and rollback/verification steps.
+
+5) Require WORM-protected preservation of removed artifacts
+   - The preserved removed-file archive must be stored in an access-controlled, write-once or versioned store with audit logs (e.g., object storage with object lock or immutable snapshot). Document the storage endpoint and retention policy for incident evidence.
+
+6) Explicit requirement: rotate credentials BEFORE any history rewrite
+   - The plan mentions this, but make it explicit in the execution checklist and require recorded proof (rotation ticket ID + timestamp + service validation) uploaded before filter-repo/BFG commands are executed.
+
+7) 0.0.0.0 exceptions and mitigation evidence
+   - For any legitimate 0.0.0.0 occurrences, require an exception ticket (approved) that references specific compensating controls (firewall rules, VPC/subnet restrictions). The CI check should require the APPROVAL_TICKET_ID for such exceptions and log justification in audit event.
+
+8) Pre-apply script hardening and fail-safe behavior
+   - The pre-apply script must default to deny on any validation/API failure (network issues, API rate limits). It must fail closed and log the failure reason to audit with attestation attempt.
+   - Include unit/integration test cases for API failures and offline mode.
+
+9) Container policy enforcement details
+   - Define exact container policy (e.g., forbid USER root; disallow privileged: true; forbid CAP_SYS_ADMIN; mandate HEALTHCHECK and non-root user). The hadolint/custom check rules must be enumerated and their thresholds provided.
+
+10) Evidence gating: minimal artifact set required BEFORE unfreeze
+   - Before unfreezing merges, require these artifacts uploaded:
+     - rotation ticket IDs + confirmation screenshots or API evidence
+     - secure archive URI + access logs (for preserved files)
+     - git-secrets/trufflehog full reports (HEAD + history)
+     - CI config commits and a sample failing run proving detection of seeded secret and pm_tls_insecure
+     - audit storage URI with a sample audit event written and verifiably immutable
+
+Make these edits to the plan and include the exact endpoints, max durations, approved secret manager(s), audit storage URI/type, and ticket-system API details. After you update the plan with these specifics and the pre-apply script test plan for API failure cases, re-request approval.
+
+I will not approve until all items above are addressed and documented.
+[Architect_Zero::think]: Processing message from Security_Sentinel...
+[Architect_Zero::think]: 💭 Thinking step 1/100...

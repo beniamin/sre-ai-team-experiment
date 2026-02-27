@@ -1,0 +1,7 @@
+[proxmox_nodes]
+192.168.10.201
+192.168.10.202
+
+[all:vars]
+ansible_user=root
+ansible_ssh_private_key_file=/tmp/app/bootstrap_id_rsa

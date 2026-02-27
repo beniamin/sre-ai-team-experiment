@@ -1,0 +1,7 @@
+- name: Join worker node
+  command: kubeadm join {{ control_plane_endpoint }} --token {{ kubeadm_token }} --discovery-token-ca-cert-hash {{ ca_hash }}
+  register: join_worker
+
+- name: Debug join output
+  debug:
+    var: join_worker.stdout

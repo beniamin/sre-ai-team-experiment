@@ -1,0 +1,12 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/templates/50-proxmox-mgmt.nft.j2
+@@
+-{% for ip in admin_allowed_ips %}
+-    ip saddr {{ ip }} tcp dport { {{ management_ports_tcp | join(', ') }} } accept;
+-    ip saddr {{ ip }} udp dport { {{ corosync_udp_ports | join(', ') }} } accept;
+-{% endfor %}
++{% for ip in admin_allowed_ips %}
++    ip saddr {{ ip }} tcp dport { {{ management_ports_tcp | join(', ') }} } accept;
++    ip saddr {{ ip }} udp dport { {{ corosync_udp_ports | join(', ') }} } accept;
++{% endfor %}
+*** End Patch

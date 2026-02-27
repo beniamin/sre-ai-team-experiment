@@ -1,0 +1,43 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/tasks/firewall.yml
+@@
+-    # previous unsafe templating block removed
++    # Render validated NFT rules on controller and validate locally before loading
++    - name: Render proxmox management nft rules to controller temp file
++      template:
++        src: templates/50-proxmox-mgmt.nft.j2
++        dest: /tmp/50-proxmox-mgmt.nft
++        owner: root
++        group: root
++        mode: '0644'
++      vars:
++        node_ips: "{{ proxmox_node_ips }}"
++        admin_allowed_ips: "{{ admin_allowed_ips }}"
++      delegate_to: localhost
++      run_once: true
++
++    - name: Validate rendered nft syntax locally (controller)
++      command: nft -c -f /tmp/50-proxmox-mgmt.nft
++      delegate_to: localhost
++      run_once: true
++      register: nft_syntax_check
++      failed_when: nft_syntax_check.rc != 0
++      changed_when: false
++
++    - name: Copy validated nft rules to node
++      copy:
++        src: /tmp/50-proxmox-mgmt.nft
++        dest: /etc/nftables.d/50-proxmox-mgmt.nft
++        owner: root
++        group: root
++        mode: '0644'
++
++    - name: Load nft rules on node
++      command: nft -f /etc/nftables.d/50-proxmox-mgmt.nft
++      become: true
++
++    - name: Persist nft rules (attempt system reload)
++      command: systemctl reload nftables
++      ignore_errors: true
++      become: true
+*** End Patch

@@ -1,0 +1,8 @@
+*** a/tasks/firewall.yml
+*** b/tasks/firewall.yml
+@@
+ - name: Save nftruleset
+-  command: nft list ruleset > /etc/nftables.conf || true
+-  become: true
++  ansible.builtin.shell: /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
++  become: true

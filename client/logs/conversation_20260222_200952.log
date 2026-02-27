@@ -1,0 +1,93 @@
+[System]: STOP command sent.
+[System]: Session history cleared.
+[User]: import redis
+[User]: import json
+[Architect_Zero::think]: Processing message from User...
+[Architect_Zero::think]: 💭 Thinking step 1/20...
+[User]: import uuid
+[User]: import sys
+[User]: import threading
+[User]: from datetime import datetime
+[User]: import os
+[User]: # Configuration
+[User]: REDIS_HOST = "localhost" # For local testing, or "redis-broker" inside docker
+[User]: REDIS_PORT = 6379
+[User]: CHANNEL = "agent_channel"
+[User]: HISTORY_KEY = "chat_history"
+[User]: LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+[User]: os.makedirs(LOG_DIR, exist_ok=True)
+[User]: timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+[User]: LOG_FILE = os.path.join(LOG_DIR, f"conversation_{timestamp}.log")
+[User]: def log_to_file(text):
+[User]:     with open(LOG_FILE, "a") as f:
+[User]:         f.write(text + "\n")
+[User]: def listen_for_messages(pubsub, my_id):
+[User]:     for message in pubsub.listen():
+[User]:         if message['type'] == 'message':
+[User]:             data = json.loads(message['data'])
+[User]:             sender = data.get("sender")
+[User]:             content = data.get("content")
+[User]:             # Don't print own messages
+[User]:             if sender == my_id:
+[User]:                 continue
+[User]:             print(f"\n[{sender}]: {content}")
+[User]:             log_to_file(f"[{sender}]: {content}")
+[User]:             print(f"[{my_id}]: ", end="", flush=True)
+[User]: def main():
+[User]:     # Attempt to connect to Redis
+[User]:     try:
+[User]:         r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+[User]:         r.ping()
+[User]:     except redis.ConnectionError:
+[User]:         print(f"Could not connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Is it running?")
+[User]:         sys.exit(1)
+[User]:     my_id = "User"
+[User]:     pubsub = r.pubsub()
+[User]:     pubsub.subscribe(CHANNEL)
+[User]:     print(f"Connected to A2A Network as {my_id}.")
+[User]:     print("Commands: STOP (halt agents) | CLEAR (reset session) | exit/quit")
+[User]:     print("---------------------------------------------------------------")
+[User]:     # Start listener thread
+[User]:     listener = threading.Thread(target=listen_for_messages, args=(pubsub, my_id), daemon=True)
+[User]:     listener.start()
+[User]:     try:
+[User]:         while True:
+[User]:             user_input = input(f"[{my_id}]: ")
+[User]:             if user_input.lower() in ["exit", "quit"]:
+[User]:                 break
+[User]:             if not user_input.strip():
+[User]:                 continue
+[User]:             # Handle CLEAR command
+[User]:             if user_input.strip().upper() == "CLEAR":
+[User]:                 r.delete(HISTORY_KEY)
+[User]:                 print("[System]: Session history cleared. Starting fresh.")
+[User]:                 log_to_file("[System]: Session history cleared.")
+[User]:                 continue
+[User]:             # Handle STOP command — broadcast to all agents
+[User]:             if user_input.strip().upper() == "STOP":
+[User]:                 stop_msg = {
+[User]:                     "sender": my_id,
+[User]:                     "content": "STOP",
+[User]:                     "timestamp": datetime.now().isoformat()
+[User]:                 }
+[User]:                 msg_json = json.dumps(stop_msg)
+[User]:                 r.rpush(HISTORY_KEY, msg_json)
+[User]:                 r.publish(CHANNEL, msg_json)
+[User]:                 print("[System]: STOP command sent to all agents.")
+[User]:                 log_to_file("[System]: STOP command sent.")
+[User]:                 continue
+[User]:             log_to_file(f"[{my_id}]: {user_input}")
+[User]:             message = {
+[User]:                 "sender": my_id,
+[User]:                 "content": user_input,
+[User]:                 "timestamp": datetime.now().isoformat()
+[User]:             }
+[User]:             # Publish and Save to History
+[User]:             msg_json = json.dumps(message)
+[User]:             r.rpush(HISTORY_KEY, msg_json)
+[User]:             r.publish(CHANNEL, msg_json)
+[User]:     except KeyboardInterrupt:
+[User]:         print("\nExiting...")
+[User]: if __name__ == "__main__":
+[User]:     main()
+[System]: Session history cleared.

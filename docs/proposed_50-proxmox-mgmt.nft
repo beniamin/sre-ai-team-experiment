@@ -1,0 +1,43 @@
+# Controller-rendered conservative nftables template for Proxmox management
+# NOTE: Always invoke ansible with escaped double-quoted extra-vars:
+# --extra-vars "proxmox_node_ips=[\"192.168.10.201\",\"192.168.10.202\"] admin_allowed_ips=[\"192.168.10.211\",\"192.168.10.10\"]"
+
+# Defensive coercion: ensure inputs are lists even if passed as YAML strings
+
+table inet proxmox_mgmt {
+  chain input {
+    type filter hook input priority 0; policy accept;
+
+    # allow loopback and established
+    iif lo accept
+    ct state established,related accept
+
+    # Explicit per-node corosync accepts (one rule per IP per port)
+        # corosync from 192.168.10.201
+    ip saddr 192.168.10.201 udp dport 5404 accept
+    ip saddr 192.168.10.201 udp dport 5405 accept
+        # corosync from 192.168.10.202
+    ip saddr 192.168.10.202 udp dport 5404 accept
+    ip saddr 192.168.10.202 udp dport 5405 accept
+    
+    # Explicit per-admin accepts for management ports (one rule per IP per port)
+        # admin access from 192.168.10.211
+    ip saddr 192.168.10.211 tcp dport 22 accept
+    ip saddr 192.168.10.211 tcp dport 8006 accept
+    # storage control ports (NFS/iSCSI) if used
+    ip saddr 192.168.10.211 tcp dport 2049 accept
+    ip saddr 192.168.10.211 tcp dport 3260 accept
+        # admin access from 192.168.10.10
+    ip saddr 192.168.10.10 tcp dport 22 accept
+    ip saddr 192.168.10.10 tcp dport 8006 accept
+    # storage control ports (NFS/iSCSI) if used
+    ip saddr 192.168.10.10 tcp dport 2049 accept
+    ip saddr 192.168.10.10 tcp dport 3260 accept
+    
+    # Drop any other source attempting management ports
+    tcp dport 22 counter drop
+    tcp dport 8006 counter drop
+    udp dport 5404 counter drop
+    udp dport 5405 counter drop
+  }
+}

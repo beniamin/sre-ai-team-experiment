@@ -1,0 +1,79 @@
+---
+- name: Verify firewall and management access
+  hosts: all
+  gather_facts: no
+  vars:
+    admin_allowed_ips: []
+    workload_test_host: "192.168.10.50"  # placeholder; will use local probe where possible
+  tasks:
+    - name: Generate ISO timestamp for report filenames
+      ansible.builtin.command: date -u +"%Y-%m-%dT%H:%M:%SZ"
+      register: iso_ts
+      changed_when: false
+      delegate_to: localhost
+
+    - name: Show nftables ruleset
+      ansible.builtin.command:
+        cmd: nft list ruleset
+      register: nft_rules
+      changed_when: false
+      become: true
+
+    - name: Capture pvecm status
+      ansible.builtin.command:
+        cmd: pvecm status
+      register: pvecm_out
+      changed_when: false
+      become: true
+
+    - name: Capture corosync status
+      ansible.builtin.command:
+        cmd: corosync-cfgtool -s || corosync-cmapctl | sed -n '1,200p'
+      register: corosync_out
+      changed_when: false
+      become: true
+
+    - name: Attempt curl to Proxmox API from local host
+      ansible.builtin.shell: |
+        curl -k --connect-timeout 5 https://127.0.0.1:8006 || true
+      register: local_curl
+      changed_when: false
+
+    - name: Gather verification report
+      ansible.builtin.copy:
+        dest: /tmp/firewall_verify_report_{{ inventory_hostname }}.txt
+        content: |
+          === nft rules ===
+          {{ nft_rules.stdout }}
+
+          === pvecm status ===
+          {{ pvecm_out.stdout }}
+
+          === corosync ===
+          {{ corosync_out.stdout }}
+
+          === local curl ===
+          {{ local_curl.stdout }}
+      become: true
+
+    - name: Fetch verification report to controller
+      ansible.builtin.slurp:
+        src: /tmp/firewall_verify_report_{{ inventory_hostname }}.txt
+      register: report
+      become: true
+
+    - name: Write report to controller
+      ansible.builtin.copy:
+        dest: /app/docs/firewall_verify_{{ inventory_hostname }}_{{ iso_ts.stdout }}.md
+        content: "{{ report.content | b64decode }}"
+      delegate_to: localhost
+
+    - name: Ensure report permissions
+      ansible.builtin.file:
+        path: /app/docs/firewall_verify_{{ inventory_hostname }}_{{ iso_ts.stdout }}.md
+        mode: '0600'
+      delegate_to: localhost
+
+    - name: Report summary
+      ansible.builtin.debug:
+        msg: "Verification report saved for {{ inventory_hostname }}"

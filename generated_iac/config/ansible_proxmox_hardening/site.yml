@@ -1,0 +1,22 @@
+- name: Proxmox hardening and qdevice/stonith setup
+  hosts: proxmox
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Create automation user
+      include_tasks: tasks/create_user.yml
+
+    - name: Apply SSH hardening
+      include_tasks: tasks/ssh_hardening.yml
+
+    - name: Configure pve-firewall rules for management network
+      include_tasks: tasks/firewall.yml
+
+    - name: Register QDevice (if witness provided)
+      include_tasks: tasks/qdevice_register.yml
+      when: qdevice_witness is defined and qdevice_witness | length > 0
+
+    - name: Configure STONITH via BMC (if creds provided)
+      include_tasks: tasks/stonith_setup.yml
+      when: bmc_credentials is defined

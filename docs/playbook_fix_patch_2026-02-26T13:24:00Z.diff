@@ -1,0 +1,13 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+-    - name: Normalize admin_allowed_ips to a list
+-      ansible.builtin.set_fact:
+-        admin_allowed_ips_normalized: >-
+-          {{ (admin_allowed_ips if (admin_allowed_ips is iterable and admin_allowed_ips is not string) else (admin_allowed_ips | default('') | string).split(',')) | map('trim') | list }}
+-      become: true
+@@
+-      vars:
+-        admin_allowed_ips: "{{ admin_allowed_ips_normalized }}"
++      # use admin_allowed_ips directly (expect a list via extra-vars)
+*** End Patch

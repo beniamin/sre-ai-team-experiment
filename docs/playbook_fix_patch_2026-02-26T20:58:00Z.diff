@@ -1,0 +1,31 @@
+--- /tmp/play_verify_firewall.yml.bak	2026-02-26 18:57:14.388890826 +0000
++++ /app/config/ansible_proxmox_hardening/play_verify_firewall.yml	2026-02-26 18:57:29.354305371 +0000
+@@ -6,6 +6,12 @@
+     admin_allowed_ips: []
+     workload_test_host: "192.168.10.50"  # placeholder; will use local probe where possible
+   tasks:
++    - name: Generate ISO timestamp for report filenames
++      ansible.builtin.command: date -u +"%Y-%m-%dT%H:%M:%SZ"
++      register: iso_ts
++      changed_when: false
++      delegate_to: localhost
++
+     - name: Show nftables ruleset
+       ansible.builtin.command:
+         cmd: nft list ruleset
+@@ -58,13 +64,13 @@
+ 
+     - name: Write report to controller
+       ansible.builtin.copy:
+-        dest: /app/docs/firewall_verify_{{ inventory_hostname }}_{{ ansible_date_time.iso8601_basic }}.md
++        dest: /app/docs/firewall_verify_{{ inventory_hostname }}_{{ iso_ts.stdout }}.md
+         content: "{{ report.content | b64decode }}"
+       delegate_to: localhost
+ 
+     - name: Ensure report permissions
+       ansible.builtin.file:
+-        path: /app/docs/firewall_verify_{{ inventory_hostname }}_{{ ansible_date_time.iso8601_basic }}.md
++        path: /app/docs/firewall_verify_{{ inventory_hostname }}_{{ iso_ts.stdout }}.md
+         mode: '0600'
+       delegate_to: localhost
+ 

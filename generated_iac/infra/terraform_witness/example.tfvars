@@ -1,0 +1,11 @@
+witness_name = "proxmox-witness"
+target_node = "192.168.10.201"
+witness_cores = 1
+witness_memory_mb = 512
+witness_disk_gb = 4
+mgmt_bridge = "vmbr-mgmt"
+storage = "local"
+witness_ip = "192.168.10.210"
+gateway = "192.168.10.1"
+cloud_init_user = "ubuntu"
+bootstrap_ssh_pubkey_path = "/path/to/bootstrap.pub"

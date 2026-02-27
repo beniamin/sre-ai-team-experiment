@@ -1,0 +1,18 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_cleanup_bootstrap_key.yml
+@@
+-    - name: Ensure authorized_keys permissions
+-      ansible.builtin.file:
+-        path: /root/.ssh/authorized_keys
+-        owner: root
+-        group: root
+-        mode: '0600'
+-      become: true
++    - name: Ensure authorized_keys permissions (avoid chgrp to prevent failures on constrained FS)
++      ansible.builtin.file:
++        path: /root/.ssh/authorized_keys
++        owner: root
++        # do not modify group to avoid chgrp errors on mounted/protected filesystems
++        mode: '0600'
++      become: true
+*** End Patch

@@ -1,0 +1,22 @@
+--- /tmp/play_host_firewall_compensations.yml.bak	2026-02-26 18:55:10.663253624 +0000
++++ /app/config/play_host_firewall_compensations.yml	2026-02-26 18:55:21.387821912 +0000
+@@ -49,8 +49,8 @@
+       when: nft_check.rc == 0
+ 
+     - name: Save nftables rules
+-      ansible.builtin.command:
+-        cmd: nft list ruleset > /etc/nftables.conf || true
++      ansible.builtin.shell: |
++        /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
+       become: true
+ 
+     - name: Reload nftables
+@@ -61,7 +61,7 @@
+ 
+     - name: Verify management ports are only accessible from admin IPs (local check)
+       ansible.builtin.shell: |
+-        for p in {{ management_ports_tcp | join(' ') }}; do ss -ltnp | grep -E ":$p\b" || true; done
++        for p in {{ management_ports_tcp | join(' ') }}; do ss -ltnp | grep -E ":$p\\b" || true; done
+       register: ss_out
+       changed_when: false
+       become: true

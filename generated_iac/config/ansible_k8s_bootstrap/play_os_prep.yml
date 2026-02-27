@@ -1,0 +1,61 @@
+---
+- name: Prepare OS for Kubernetes
+  hosts: k8s
+  become: true
+  vars:
+    container_runtime: containerd
+    kube_version: '1.29.0-00' # pin to supported version
+  tasks:
+    - name: Disable swap
+      shell: swapoff -a && sed -i.bak '/ swap / s/^/#/' /etc/fstab
+      args:
+        warn: false
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
+
+    - name: Ensure chrony installed and enabled
+      apt:
+        name: chrony
+        state: present
+
+    - name: Ensure sysctl net.bridge settings
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: 1
+        state: present
+        sysctl_set: yes
+        reload: yes
+
+    - name: Add Kubernetes apt repo and install kubeadm kubelet kubectl
+      shell: |
+        curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+        apt-get update
+        apt-get install -y kubelet={{ kube_version }} kubeadm={{ kube_version }} kubectl={{ kube_version }}
+      args:
+        warn: false
+
+    - name: Hold kube packages
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        allow_unauthenticated: false
+        dpkg_options: ['--force-confdef','--force-confold']
+        update_cache: yes

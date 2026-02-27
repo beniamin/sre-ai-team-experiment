@@ -1,0 +1,17 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+     - name: Render nftables management table from template
+       ansible.builtin.template:
+         src: "templates/50-proxmox-mgmt.nft.j2"
+         dest: /etc/nftables.d/50-proxmox-mgmt.nft
+         mode: '0644'
+       become: true
++
++    - name: Ensure /etc/nftables.d exists
++      ansible.builtin.file:
++        path: /etc/nftables.d
++        state: directory
++        mode: '0755'
++      become: true
+*** End Patch

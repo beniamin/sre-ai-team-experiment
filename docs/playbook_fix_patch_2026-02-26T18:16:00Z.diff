@@ -1,0 +1,9 @@
+*** play_host_firewall_compensations.yml (modified)
+@@
+-    - name: Save nftables rules
+-      ansible.builtin.command:
+-        cmd: nft list ruleset > /etc/nftables.conf || true
+-      become: true
++    - name: Save nftables rules
++      ansible.builtin.shell: /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
++      become: true

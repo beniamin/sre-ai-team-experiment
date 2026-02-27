@@ -1,0 +1,16 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+-    - name: Validate rendered nft file syntax on controller
+-      ansible.builtin.command:
+-        cmd: nft -c -f /etc/nftables.d/50-proxmox-mgmt.nft
+-      delegate_to: localhost
+-      register: nft_check
+-      failed_when: nft_check.rc != 0
++    - name: Validate rendered nft file syntax on target
++      ansible.builtin.command:
++        cmd: nft -c -f /etc/nftables.d/50-proxmox-mgmt.nft
++      become: true
++      register: nft_check
++      failed_when: nft_check.rc != 0
+*** End Patch

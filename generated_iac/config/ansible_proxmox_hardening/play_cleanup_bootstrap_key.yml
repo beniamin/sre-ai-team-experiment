@@ -1,0 +1,49 @@
+---
+- name: Remove bootstrap SSH key and rotate temporary automation keys
+  hosts: all
+  gather_facts: no
+  vars:
+    bootstrap_pubkey_pattern: "<BOOTSTRAP_PUBKEY_PLACEHOLDER>"
+  tasks:
+    - name: Read root authorized_keys if present
+      ansible.builtin.slurp:
+        src: /root/.ssh/authorized_keys
+      register: ak
+      ignore_errors: yes
+      become: true
+
+    - name: Decode authorized_keys
+      ansible.builtin.set_fact:
+        authorized_keys_content: "{{ ak.content | default('') | b64decode }}"
+      when: ak is defined and ak.content is defined
+
+    - name: Remove bootstrap key lines from authorized_keys
+      ansible.builtin.lineinfile:
+        path: /root/.ssh/authorized_keys
+        regexp: '{{ bootstrap_pubkey_pattern }}'
+        state: absent
+        backrefs: no
+      become: true
+      ignore_errors: yes
+
+    - name: Ensure permissions on .ssh
+      ansible.builtin.file:
+        path: /root/.ssh
+        owner: root
+        group: root
+        mode: '0700'
+      become: true
+
+    - name: Ensure authorized_keys permissions (avoid chgrp to prevent failures on constrained FS)
+      ansible.builtin.file:
+        path: /root/.ssh/authorized_keys
+        owner: root
+        # do not modify group to avoid chgrp errors on /etc/pve or other mounted filesystems
+        mode: '0600'
+      become: true
+
+    - name: Touch cleanup marker
+      ansible.builtin.file:
+        path: /var/lib/proxmox_bootstrap_key_removed
+        state: touch
+      become: true

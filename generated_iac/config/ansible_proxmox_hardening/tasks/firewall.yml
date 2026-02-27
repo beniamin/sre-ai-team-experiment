@@ -1,0 +1,114 @@
+- name: Ensure nftables present
+  ansible.builtin.package:
+    name: nftables
+    state: present
+  become: true
+
+- name: Ensure nftables service enabled and started
+  ansible.builtin.service:
+    name: nftables
+    state: started
+    enabled: true
+  become: true
+
+- name: Ensure /etc/nftables.d exists
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Render proxmox management nft template on controller
+  template:
+    src: "../templates/50-proxmox-mgmt.nft.j2"
+    dest: /tmp/50-proxmox-mgmt.nft
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+  become: true
+
+- name: Copy proposed file to docs for audit
+  ansible.builtin.copy:
+    src: /tmp/50-proxmox-mgmt.nft
+    dest: /app/docs/proposed_50-proxmox-mgmt.nft
+    mode: '0600'
+  delegate_to: localhost
+  run_once: true
+  become: true
+
+- name: Validate rendered nft file locally (controller)
+  command: nft -c -f /tmp/50-proxmox-mgmt.nft
+  delegate_to: localhost
+  changed_when: false
+  failed_when: rc != 0
+
+- name: Ensure existing remote nft file backup if present
+  stat:
+    path: /etc/nftables.d/50-proxmox-mgmt.nft
+  register: nft_remote_stat
+  become: true
+
+- name: Backup existing remote nft file to preapply path (if exists)
+  when: nft_remote_stat.stat.exists
+  block:
+    - name: Create preapply path with timestamp
+      set_fact:
+        preapply_ts: "{{ lookup('pipe','date -u +"%Y-%m-%dT%H:%M:%SZ"') }}"
+      run_once: true
+
+    - name: Copy existing file to preapply backup on node
+      command: cp /etc/nftables.d/50-proxmox-mgmt.nft /etc/nftables.d/50-proxmox-mgmt.nft.preapply_{{ preapply_ts }}
+      become: true
+
+    - name: Fetch preapply backup to controller /app/docs for archival
+      fetch:
+        src: /etc/nftables.d/50-proxmox-mgmt.nft.preapply_{{ preapply_ts }}
+        dest: /app/docs/50-proxmox-mgmt.nft.preapply_{{ preapply_ts }}
+        flat: yes
+      become: true
+
+- name: Copy validated nft file to target tmp path
+  copy:
+    src: /tmp/50-proxmox-mgmt.nft
+    dest: /etc/nftables.d/50-proxmox-mgmt.nft.tmp
+    owner: root
+    mode: '0600'
+  become: true
+
+- name: Atomically move tmp nft into place
+  command: mv -f /etc/nftables.d/50-proxmox-mgmt.nft.tmp /etc/nftables.d/50-proxmox-mgmt.nft
+  become: true
+
+- name: Validate copied nft file on target
+  command: nft -c -f /etc/nftables.d/50-proxmox-mgmt.nft
+  become: true
+  register: nft_validate_remote
+  changed_when: false
+
+- name: Restore preapply backup if on-target validation failed
+  when: nft_validate_remote.rc != 0 and nft_remote_stat.stat.exists
+  block:
+    - name: Restore preapply backup
+      command: mv -f /etc/nftables.d/50-proxmox-mgmt.nft.preapply_{{ preapply_ts }} /etc/nftables.d/50-proxmox-mgmt.nft
+      become: true
+
+    - name: Save validation and restore output to docs
+      copy:
+        content: "Validation rc={{ nft_validate_remote.rc }}\nstdout:\n{{ nft_validate_remote.stdout }}\nstderr:\n{{ nft_validate_remote.stderr }}\n"
+        dest: /app/docs/issue_report_compensations_{{ lookup('pipe','date -u +"%Y-%m-%dT%H:%M:%SZ"') }}.md
+        mode: '0600'
+      delegate_to: localhost
+      run_once: true
+      become: true
+
+    - name: Fail the play due to validation failure
+      fail:
+        msg: "On-target nft validation failed and preapply backup restored. See docs for details."
+
+- name: Load nft rules
+  command: nft -f /etc/nftables.d/50-proxmox-mgmt.nft
+  become: true
+
+- name: Save nftruleset
+  ansible.builtin.shell: /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
+  become: true

@@ -1,0 +1,19 @@
+- name: Ensure ipmitool installed
+  apt:
+    name: ipmitool
+    state: present
+    update_cache: yes
+  when: bmc_credentials is defined
+
+- name: Test BMC connectivity
+  command: ipmitool -I lanplus -H {{ bmc_credentials.host }} -U {{ bmc_credentials.user }} -P {{ bmc_credentials.pass }} chassis status
+  register: ipmi_test
+  failed_when: ipmi_test.rc != 0
+
+- name: Configure fencing agent (example)
+  debug:
+    msg: "Configure fencing agent with provided BMC credentials in Proxmox GUI or use fence_ipmilan with proper params"
+
+- name: Fencing test (manual execution required)
+  debug:
+    msg: "To test: run ipmitool chassis power cycle and verify node is powered off and cluster reacts as expected"

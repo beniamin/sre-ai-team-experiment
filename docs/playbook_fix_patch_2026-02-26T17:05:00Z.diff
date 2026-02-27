@@ -1,0 +1,64 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/templates/50-proxmox-mgmt.nft.j2
+@@
+-table inet proxmox_mgmt {
+-  chain input {
+-    type filter hook input priority 0; policy accept;
+-
+-    # allow loopback and established
+-    iif lo accept
+-    ct state established,related accept
+-
+-    # Allow corosync between cluster nodes (explicit node IPs)
+-    {% for ip in node_ips %}
+-    ip saddr {{ ip }} udp dport { 5404, 5405 } accept
+-    {% endfor %}
+-
+-    # Allow admin jump hosts to management ports
+-    {% for admin_ip in admin_allowed_ips %}
+-    ip saddr {{ admin_ip }} tcp dport { 22, 8006 } accept
+-    {% endfor %}
+-
+-    # Allow storage control ports from admin hosts (if used)
+-    {% for admin_ip in admin_allowed_ips %}
+-    ip saddr {{ admin_ip }} tcp dport { 2049, 3260 } accept
+-    {% endfor %}
+-
+-    # Drop remaining attempts to management ports
+-    tcp dport { 22, 8006 } counter drop
+-    udp dport { 5404, 5405 } counter drop
+-  }
+-}
++table inet proxmox_mgmt {
++  chain input {
++    type filter hook input priority 0; policy accept;
++
++    # allow loopback and established
++    iif lo accept
++    ct state established,related accept
++
++    # Explicit per-node corosync accepts (one rule per IP/port)
++    {% for ip in node_ips %}
++    # corosync from {{ ip }}
++    ip saddr {{ ip }} udp dport 5404 accept
++    ip saddr {{ ip }} udp dport 5405 accept
++    {% endfor %}
++
++    # Explicit per-admin accepts for management ports (one rule per IP/port)
++    {% for admin_ip in admin_allowed_ips %}
++    # admin access from {{ admin_ip }}
++    ip saddr {{ admin_ip }} tcp dport 22 accept
++    ip saddr {{ admin_ip }} tcp dport 8006 accept
++    # storage control ports if used
++    ip saddr {{ admin_ip }} tcp dport 2049 accept
++    ip saddr {{ admin_ip }} tcp dport 3260 accept
++    {% endfor %}
++
++    # Drop any other source attempting management ports
++    tcp dport 22 counter drop
++    tcp dport 8006 counter drop
++    udp dport 5404 counter drop
++    udp dport 5405 counter drop
++  }
++}
+*** End Patch

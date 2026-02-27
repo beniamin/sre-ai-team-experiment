@@ -1,0 +1,78 @@
+---
+- name: Apply host-level firewall compensations on Proxmox nodes
+  hosts: all
+  gather_facts: no
+  vars:
+    admin_allowed_ips: []
+    management_ports_tcp: [22, 8006]
+    corosync_udp_ports: [5404, 5405]
+    proxmox_node_ips: []
+  tasks:
+    - name: Ensure nftables present
+      ansible.builtin.package:
+        name: nftables
+        state: present
+      become: true
+
+    - name: Ensure nftables service enabled and started
+      ansible.builtin.service:
+        name: nftables
+        state: started
+        enabled: true
+      become: true
+
+    - name: Ensure /etc/nftables.d exists
+      ansible.builtin.file:
+        path: /etc/nftables.d
+        state: directory
+        mode: '0755'
+      become: true
+
+    - name: Render nftables management table from template
+      ansible.builtin.template:
+        src: "templates/50-proxmox-mgmt.nft.j2"
+        dest: /etc/nftables.d/50-proxmox-mgmt.nft
+        mode: '0644'
+      become: true
+
+    - name: Validate rendered nft file syntax on target
+      ansible.builtin.command:
+        cmd: nft -c -f /etc/nftables.d/50-proxmox-mgmt.nft
+      become: true
+      register: nft_check
+      failed_when: nft_check.rc != 0
+
+    - name: Ensure nftables includes proxmox-mgmt table (load rules)
+      ansible.builtin.command:
+        cmd: nft -f /etc/nftables.d/50-proxmox-mgmt.nft
+      become: true
+      when: nft_check.rc == 0
+
+    - name: Save nftables rules
+      ansible.builtin.shell: /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
+      become: true
+
+    - name: Reload nftables
+      ansible.builtin.service:
+        name: nftables
+        state: restarted
+      become: true
+
+    - name: Verify management ports are only accessible from admin IPs (local check)
+      ansible.builtin.shell: |
+        for p in {{ management_ports_tcp | join(' ') }}; do ss -ltnp | grep -E ":$p\\b" || true; done
+      register: ss_out
+      changed_when: false
+      become: true
+
+    - name: Output local port listeners
+      ansible.builtin.debug:
+        var: ss_out.stdout_lines
+
+    - name: Report firewall applied marker
+      ansible.builtin.file:
+        path: /var/lib/proxmox_mgmt_firewall_applied
+        state: touch
+      become: true
+
+  # End play

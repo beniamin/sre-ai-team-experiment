@@ -1,0 +1,48 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/tasks/firewall.yml
+@@
+ - name: Render proxmox management nft template
+-  template:
+-    src: "../templates/50-proxmox-mgmt.nft.j2"
+-    dest: /tmp/50-proxmox-mgmt.nft
+-    mode: '0644'
+-  delegate_to: localhost
+-  run_once: true
+-  become: true
++  template:
++    src: "../templates/50-proxmox-mgmt.nft.j2"
++    dest: /tmp/50-proxmox-mgmt.nft
++    mode: '0644'
++  delegate_to: localhost
++  run_once: true
++  become: true
+@@
+ - name: Copy validated nft file to target
+   copy:
+     src: /tmp/50-proxmox-mgmt.nft
+     dest: /etc/nftables.d/50-proxmox-mgmt.nft
+     mode: '0644'
+   become: true
+@@
+ - name: Save nftruleset
+-  ansible.builtin.shell: /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
++  ansible.builtin.shell: /bin/sh -c 'nft list ruleset > /etc/nftables.conf || true'
+   become: true
+*** End Patch
+
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/templates/50-proxmox-mgmt.nft.j2
+@@
+-table inet proxmox_mgmt {
++# Controller-rendered conservative nftables template for Proxmox management
++# NOTE: Always invoke ansible with escaped double-quoted extra-vars:
++# --extra-vars "proxmox_node_ips=[\"192.168.10.201\",\"192.168.10.202\"] admin_allowed_ips=[\"192.168.10.211\",\"192.168.10.10\"]"
++
++# Defensive coercion: ensure inputs are lists even if passed as YAML strings
++{% set node_list = (proxmox_node_ips if (proxmox_node_ips is iterable and proxmox_node_ips is not string) else (proxmox_node_ips | default('[]') | from_yaml)) %}
++{% set admin_list = (admin_allowed_ips if (admin_allowed_ips is iterable and admin_allowed_ips is not string) else (admin_allowed_ips | default('[]') | from_yaml)) %}
++
++table inet proxmox_mgmt {
+   chain input {
+     type filter hook input priority 0; policy accept;
+*** End Patch

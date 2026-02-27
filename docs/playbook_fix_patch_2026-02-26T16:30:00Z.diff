@@ -1,0 +1,7 @@
+*** Begin Patch
+*** Update File: /app/config/ansible_proxmox_hardening/play_host_firewall_compensations.yml
+@@
+-    proxmox_node_ips: "{{ proxmox_node_ips | default(['192.168.10.201','192.168.10.202']) }}"
++    # proxmox_node_ips must be provided via --extra-vars or inventory; default left empty to avoid recursion
++    proxmox_node_ips: []
+*** End Patch

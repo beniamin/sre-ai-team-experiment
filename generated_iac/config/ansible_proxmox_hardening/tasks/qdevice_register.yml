@@ -1,0 +1,22 @@
+- name: Install qdevice packages
+  apt:
+    name: ["corosync-qdevice", "corosync-qnetd"]
+    state: present
+    update_cache: yes
+
+- name: Ensure corosync-qnetd running on witness (manual step)
+  debug:
+    msg: "Ensure qnetd is running on witness VM at {{ qdevice_witness }} and reachable on port 5406"
+
+- name: Setup qdevice on cluster
+  command: pvecm qdevice setup root@{{ qdevice_witness }}
+  register: qdevice_setup
+  changed_when: "'already' not in qdevice_setup.stdout"
+
+- name: Verify pvecm status
+  command: pvecm status
+  register: pvecm_status
+
+- name: Debug pvecm status
+  debug:
+    var: pvecm_status.stdout

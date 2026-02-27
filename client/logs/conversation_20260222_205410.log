@@ -1,0 +1,159 @@
+[User]: I just installed a proxmox cluster with 2 nodes. Configure the proxmox cluster and prepare it to deploy a k8s cluster with multiple nodes. The k8s cluster should optimize all resource that is has on the proxmox cluster. The k8s should be a HA cluster, with an ingress controller and a hello world application. The ingress cluster should be accesible from the local network
+[Architect_Zero::think]: Processing message from User...
+[Architect_Zero::think]: 💭 Thinking step 1/20...
+[Architect_Zero]: Tagging for security review: @Security_Sentinel
+
+High-level objective
+- Prepare your 2-node Proxmox cluster to host a highly-available Kubernetes cluster that:
+  - Uses the Proxmox hosts efficiently (maximize usable CPU/RAM/disk across VMs).
+  - Runs a HA Kubernetes control plane and multiple worker nodes spread across both Proxmox nodes.
+  - Exposes an ingress controller to your local LAN so a simple "hello world" app is reachable from your network.
+- I will not run any commands here; this is a prescriptive plan and handoff. The builder team will perform the changes once @Security_Sentinel APPROVEDs.
+
+Assumptions and required information
+I will assume today’s defaults unless you provide different values:
+- Proxmox nodes have working cluster membership and shared management network (PVE cluster formed).
+- Proxmox storage: local-lvm on each node (no external shared storage). If you have Ceph or NFS, tell me.
+- Proxmox nodes are connected to the LAN and can reach the internet for package downloads.
+- You can allocate an IP range on the LAN for MetalLB (or provide a VIP range for load balancer).
+Please provide the following so I can finalize exact configs:
+1. LAN subnet and gateway (e.g., 192.168.1.0/24, gateway 192.168.1.1).
+2. Do you have DHCP on the LAN? Do you want VMs to use DHCP or static IPs?
+3. Available aggregate resources on both Proxmox nodes (CPU cores, RAM, disk).
+4. Do you have shared storage (Ceph, NFS, iSCSI)? If yes, which?
+If you do not provide these, I will use conservative defaults and note them in the implementation steps.
+[AWAITING_INPUT]
+
+Planned architecture (recommended)
+- Control plane: 3 small VMs (kubeadm static pods) to provide etcd + control-plane quorum. Distribute across physical Proxmox hosts (e.g., 2 on node A and 1 on node B, or ideally 2+1 such that a single host failure still preserves quorum).
+- Workers: 2–4 worker VMs sized to use remaining resources across both Proxmox hosts.
+- External HA load balancer: one small VM running HAProxy + keepalived (or use kube-vip inside control plane) to present a single API VIP for kubeadm join/healthchecks.
+- Storage: Use host-local storage for PVs or deploy Longhorn/Rook (if you have available disk across nodes); if only local-lvm present, recommend Longhorn for highly-available block storage across nodes.
+- Ingress + external access: Deploy nginx-ingress (or ingress-nginx) plus MetalLB in layer2 mode to hand out a LAN IP from an allocated range for ingress Service of type LoadBalancer. This makes the ingress accessible from local network IPs.
+- Overlay/networking: Calico (recommended) for CNI (supports policy and scalable network).
+
+Detailed step-by-step plan
+
+Phase 1 — Proxmox host hardening & resource planning
+1. Inventory host resources:
+   - Record CPU cores, threads, RAM, and local disk per node.
+   - Identify any spare disks to assign to VMs or a storage solution (Longhorn/Rook/Ceph).
+2. Networking:
+   - Ensure a Linux bridge exists on each Proxmox host mapped to the physical interface connected to your LAN (e.g., vmbr0).
+   - Confirm VLANs/trunk settings if you want segregated traffic (optional).
+3. Time & NTP:
+   - Configure NTP on both Proxmox hosts to keep clocks in sync (important for Kubernetes/etcd).
+4. Backup/HA config:
+   - Ensure Proxmox quorum is healthy and backups/snapshots are available before mass provisioning.
+
+Phase 2 — VM provisioning strategy (optimize resource utilization)
+1. VM sizing guidelines (adjust to your inventory):
+   - Control-plane VMs (3): 2 vCPU, 4–8 GiB RAM, 30–40 GiB disk each.
+   - Worker VMs (2–4): 2–4 vCPU, 8–16 GiB RAM depending on workload, 40–80 GiB disk.
+   - HAProxy/keepalived VM: 1 vCPU, 512–1024 MiB RAM, 2 GiB disk (or use kube-vip to avoid extra VM).
+2. Use thin provisioning for disks (unless your workload needs preallocated performance).
+3. CPU pinning / host CPU tuning:
+   - Avoid overly rigid pinning unless you have NUMA/performance constraints. Let the hypervisor schedule vCPUs normally, but reserve resources proportionally (e.g., set ballooning/enforce memory limits).
+4. Storage:
+   - If only local-lvm exists, use Longhorn for replicated PVs across VMs. Allocate at least one spare disk per Proxmox node for Longhorn storage (attach as raw block to the Longhorn manager VMs).
+   - If Ceph is available, use Ceph RBD storage class for high availability.
+
+Phase 3 — Create base OS templates and prepare cloud-init
+1. Create a minimal, lean OS template (Ubuntu LTS or Debian):
+   - Install qemu-guest-agent and cloud-init.
+   - Disable unnecessary services.
+   - Install Docker/containerd dependencies if you want to bake them in.
+2. Use cloud-init or Proxmox templates to provision Kubernetes VMs consistently.
+3. Networking in VMs: Use the LAN bridge (vmbr0) so VMs receive LAN IPs (DHCP or static).
+
+Phase 4 — Deploy supporting HA for Kubernetes control plane
+Choose one:
+A) External HA load balancer (recommended for clarity)
+   - Deploy a small HAProxy + keepalived pair (or a single VM if using VRRP is not required) that advertises a virtual IP (VIP) on the LAN. The VIP points to the 3 API server VMs. This provides a stable endpoint for kubeadm and kubectl.
+B) In-cluster virtual IP (kube-vip)
+   - Deploy kube-vip as a static pod on control plane nodes to provide an API VIP without an external LB VM.
+I recommend Option A if you prefer external separation; Option B if you want fewer VMs.
+
+Phase 5 — Bootstrapping Kubernetes (kubeadm HA)
+1. Prepare all VMs:
+   - Install Docker/containerd, kubeadm, kubelet, kubectl. Disable swap.
+   - Ensure necessary sysctl (bridge-nf-call-iptables=1, etc.).
+   - Ensure time sync and hostname resolution for all nodes.
+2. Initialize first control plane:
+   - Use kubeadm init --control-plane-endpoint <API_VIP>:6443 --upload-certs ...
+   - Save the join command(s) generated securely (do not commit them).
+3. Join additional control-plane nodes using kubeadm join with --control-plane.
+4. Join worker nodes with standard kubeadm join.
+5. Validate cluster:
+   - kubectl get nodes -> all nodes Ready.
+   - kubectl get cs -> healthy.
+
+Phase 6 — Networking & storage in-cluster
+1. Install Calico CNI (or your chosen CNI).
+2. Deploy Longhorn (recommended if no external shared storage) or use Rook/Ceph if available.
+3. Deploy MetalLB in layer2 mode, allocate a small contiguous IP pool from your LAN for LoadBalancer Services (e.g., 192.168.1.240-192.168.1.250). MetalLB will ARP for those IPs on the LAN.
+
+Phase 7 — Ingress + application
+1. Deploy ingress controller (ingress-nginx) as a DaemonSet/Deployment or Helm chart.
+   - Expose it via Service type LoadBalancer so MetalLB assigns a LAN IP.
+   - Configure appropriate Service annotations and NodePort as fallback.
+2. Deploy a simple hello-world app:
+   - A Deployment with 2 replicas, and a Service ClusterIP.
+   - An Ingress resource that maps host/path to the hello service.
+3. Test from LAN:
+   - Hit the MetalLB-assigned IP or DNS name to reach the hello app.
+
+Phase 8 — High-availability and resilience tuning
+1. Spread pods and control plane with nodeSelectors/PodAntiAffinity to avoid single-node failure causing service loss.
+2. Set resource requests/limits for pods to allow the scheduler to make good bin-packing decisions.
+3. Configure PodDisruptionBudgets for critical services.
+4. Configure backups:
+   - ETCD snapshots (if using kubeadm local etcd) or use an external etcd snapshot/recovery plan.
+   - Backup CRDs, manifests, and persistent volumes (Longhorn has snapshot features).
+
+Phase 9 — Monitoring, logging, and access
+1. Deploy metrics-server and a lightweight monitoring stack (Prometheus + Grafana or node-exporter).
+2. Deploy a cluster log collection (Fluentd/Fluent Bit -> local storage or syslog).
+3. Set RBAC rules: kube-system/service accounts tightly scoped.
+4. Configure kubectl access: provide kubeconfig to admins via secure channel.
+
+Phase 10 — Tests and validation
+1. Simulate node failure: power-off one Proxmox node and validate control-plane quorum and worker rescheduling.
+2. Validate ingress availability across the LAN for the assigned IP.
+3. Load test minimal traffic to confirm resource headroom and autoscaling behavior (if configured).
+
+Security & best practices (concise)
+- Use MetalLB for external IP assignment instead of exposing hostPorts unless required.
+- Use TLS for API and ingress; provision certs via cert-manager (Let’s Encrypt or ACME for external reach).
+- Do not store secrets in Git or Proxmox VM config; use Kubernetes Secrets and a secrets backend if needed.
+- Limit Proxmox console access; secure SSH and enable firewall rules on Proxmox management network.
+- Network policies (via Calico) to limit pod-to-pod communications for microsegmentation.
+
+Deliverables I will hand off to the builder team
+- Exact VM sizes and counts tuned to your provided host resource numbers.
+- Cloud-init or Proxmox VM template spec for each VM type (control-plane, worker, LB).
+- kubeadm init/join commands (redacted – secrets out-of-band).
+- MetalLB IP pool recommendation for your LAN.
+- Ingress and hello-world manifests (Deployment, Service, Ingress).
+- Test checklist: validation steps and expected outputs.
+
+Execution order for the builder team (summary)
+1. Prepare Proxmox: bridge/network, NTP, templates.
+2. Provision VMs (3 CP + N workers + LB if using external).
+3. Configure OS on VMs and install k8s prerequisites.
+4. Deploy HA load balancer / kube-vip.
+5. kubeadm init and control-plane joins.
+6. Worker joins.
+7. Install CNI + MetalLB + Longhorn.
+8. Deploy ingress and hello-world.
+9. Validate and run tests; tune resource allocations.
+
+Operational notes and resource optimization advice
+- Overcommit memory slightly but monitor ballooning; set meaningful requests/limits in Kubernetes for predictable scheduling.
+- Avoid running many small VMs; prefer fewer, right-sized VMs with multiple workloads and cgroups tuned by K8s.
+- If performance sensitive, consider pinning critical control-plane vCPUs to physical cores and leaving workers unpinned.
+
+Security review request
+- @Security_Sentinel please review and reply with: APPROVED (and optionally confirm preference for Option A — external LB — which I recommend). If APPROVED, I will immediately tag the builder team and instruct them to execute the steps in the order above.
+
+Notes: I cannot perform any operations from here. Once Security_Sentinel APPROVEDs, I will tag the builder team and issue the explicit execution instructions. Provide the LAN/subnet and available host resources so I can finalize exact VM sizing and MetalLB pool before handoff.

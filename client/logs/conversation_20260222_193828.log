@@ -1,0 +1,478 @@
+[User]: I just installed a proxmox cluster with 2 nodes. Configure the proxmox cluster and prepare it to deploy a k8s cluster with multiple nodes. The k8s cluster should optimize all resource that is has on the proxmox cluster. The k8s should be a HA cluster, with an ingress controller and a hello world application. The ingress cluster should be accesible from the local network
+[Architect_Zero::think]: Processing message from User...
+[Architect_Zero::think]: 💭 Thinking step 1/20...
+[Architect_Zero]: @Security_Sentinel — please review the following infrastructure and execution plan for configuring the Proxmox cluster and preparing it to host a HA Kubernetes cluster (ingress + hello-world app, ingress reachable from the local network). This plan is staged, provider-agnostic for Proxmox details, and intended to be executed by the builder team after your security review/approval.
+
+Executive summary
+- Target: Proxmox 2-node physical cluster. Deploy a highly-available Kubernetes control plane (3 VMs) + worker nodes (3+ VMs) spread across the two Proxmox hosts with anti-affinity. Provide HA ingress reachable on the local network via a floating IP (keepalived) and an HA proxy (HAProxy or NGINX LB). Run an ingress controller and a sample hello-world app. Optimize resource usage across the available Proxmox resources, with emphasis on stable storage, virtio networking, and CPU/memory sizing. Include backups, monitoring, and secrets handling guidance.
+
+Assumptions & prerequisites
+- Proxmox cluster already installed and two physical nodes are joined in the cluster.
+- Management network (bridge) exists and Proxmox can provision VMs with bridged access to the LAN.
+- You have at least enough aggregate CPU/RAM/disk to host the planned VMs (recommendation below).
+- Administrative access to Proxmox GUI/API and ability to create templates/cloud-init VMs.
+- Local network can route the floating IP and client traffic to the Proxmox-hosted VMs.
+- No external cloud load balancer available on the LAN; we'll implement a virtual IP via keepalived or an HA proxy VM group.
+
+High-level topology
+- Proxmox physical nodes: node-a, node-b
+- Storage backend: ZFS (recommended) or LVM-thin (ok). Use fast disks for VM root disks; consider separate storage for persistent volumes (PVCs).
+- Kubernetes VMs:
+  - Control plane: 3 VMs (k8s-master-1/2/3) — evenly distributed across node-a and node-b with anti-affinity so masters don’t co-locate.
+  - Workers: start with 3 VMs (k8s-worker-1/2/3), scalable later.
+  - LB/Virtual IP: keepalived running on masters (preferred), or dedicate 2 small VMs as HAProxy/keepalived pair with floating VIP.
+- Networking: bridge to LAN for VIP / ingress access (vmbr0). Optionally use a CNI that supports IP-in-IP or BGP if advanced routing desired (Calico/Cilium).
+- Storage for Kubernetes:
+  - For cluster-internal: use local PVs + dynamic provisioning (local-path or Longhorn/Rook depending on HA/storage needs).
+  - For HA storage across nodes, consider Longhorn or Rook/Ceph (Rook+Ceph requires more nodes/resources).
+- Monitoring/Logging: node exporter + Prometheus + Grafana + EFK/ Loki stack optional.
+- Backups: schedule VM snapshots and etcd backups; use Velero for cluster resource backups.
+
+Detailed plan — preparation on Proxmox
+1) Create a cloud-init VM template
+- Build a minimal Linux VM (Ubuntu 22.04 LTS or Debian 12 recommended).
+- Install qemu-guest-agent and cloud-init packages, enable & test cloud-init networking.
+- Configure virtualization optimizations: VirtIO SCSI for disks, VirtIO NICs, ballooning enabled if desired.
+- Clean SSH keys, zero out logs, and convert to template.
+- Keep a small specialized template for control-plane (higher CPU/RAM) and a worker template (smaller).
+
+2) Define VM sizing (initial recommendation; tune to actual host capacity)
+- Control-plane VM (x3):
+  - CPU: 2–4 vCPUs each (prefer 4 if resources allow)
+  - RAM: 8–16 GiB each (8 GiB minimum, 16 GiB recommended)
+  - Disk: 50–100 GiB (root), faster storage preferable
+  - NIC: VirtIO bridged to LAN (vmbr0)
+  - Use cloud-init for SSH keys and static IP config
+- Worker VM (x3 to start):
+  - CPU: 2–8 vCPUs (depends on workloads)
+  - RAM: 8–32 GiB depending on expected workloads
+  - Disk: 50–200 GiB as required
+- Load balancer / VIP: if using separate LB VMs:
+  - CPU: 1–2 vCPUs
+  - RAM: 1–2 GiB
+  - Small disk
+- Notes: With only two physical hosts, distribute the 3 master VMs such that at least two run on different nodes; use anti-affinity rules where possible. If a physical node fails, the remaining node must host >=2 masters to keep quorum — recommend planning for failover and resource headroom.
+
+3) Create VM placement & anti-affinity strategy
+- Use Proxmox tags/constraints to spread master VMs across nodes:
+  - Example: master-1 on node-a, master-2 on node-b, master-3 on node-a (but queue rescheduling risk). Because there are two nodes and three masters, document expected failure modes: if node-a fails and it hosted two masters, you’ll still have 1 master left on node-b — NOT sufficient for quorum. To maintain etcd quorum of 3, consider:
+    - Option A (preferred): create a lightweight 3rd physical/VM host to avoid two-node split-brain risk.
+    - Option B: use stacked control plane with external etcd or use k3s with embedded DQLite (but still requires odd number of members). Risk accepted if you can tolerate temporary loss of quorum — document it.
+- If adding a 3rd physical node is impossible, consider making a small, reliable external etcd/quorum service outside Proxmox (less ideal), or run 3 masters with careful failover playbooks and monitor resource headroom.
+
+4) Networking details
+- Bridge: vmbr0 bridged to the LAN for ingress traffic.
+- Assign static IPs for masters and VIP.
+- Choose a CNI:
+  - Calico (recommended for network policy and scalability).
+  - Cilium (recommended for eBPF benefits if kernel support is present).
+- Reserve an IP in the LAN for the ingress VIP. Configure firewall and route rules to allow 80/443 to VIP.
+
+5) Storage details
+- Default storage: use ZFS on Proxmox for snapshots and performance; enable compression and appropriate recordsize for container workloads.
+- Persistent Volumes:
+  - For simple setups: local-path provisioner or Longhorn for distributed block storage (Longhorn recommended for HA on few nodes).
+  - For heavy-duty: Rook + Ceph (resource intensive).
+- Provision a dedicated storage class for dynamic PVCs.
+
+Kubernetes HA deployment options (choose one)
+- Option 1: kubeadm (stacked control plane) — classic, kubeadm supports HA if you provide an external load balancer VIP.
+  - LB → VIP (keepalived on masters or dedicated keepalived+HAProxy VMs) → master kube-apiservers
+  - Use kubeadm to bootstrap 3 control plane nodes with external VIP.
+- Option 2: k3s with embedded DQLite or k3s with external DB — lightweight, simpler, but less "full upstream" behavior.
+- Option 3: kubeadm + etcd external cluster (if you prefer separate etcd nodes).
+Recommendation: kubeadm with 3 control plane nodes and a VIP via keepalived (or separate LB VMs) for production-like HA.
+
+Ingress & external access
+- Provide VIP on LAN for API and Ingress:
+  - Setup keepalived + HAProxy on master VMs (or dedicate 2 small LB VMs).
+  - HAProxy forwards 80/443 to ingress-controller service (NodePort or HostPort) or use hostNetwork for ingress controller.
+- Ingress controller:
+  - Use ingress-nginx or Traefik (ingress-nginx is well-known and stable).
+  - Deploy as DaemonSet or Deployment (recommended as Deployment with Service type=NodePort/LoadBalancer analog handled by HAProxy).
+- DNS: Add local DNS A record pointing to VIP for app domain (or use hosts file on local clients).
+
+Kubernetes cluster bootstrapping steps (high level)
+1) Provision VMs from templates with static IPs and SSH keys.
+2) Harden OS: disable swap, configure sysctl for Kubernetes, install container runtime (containerd or Docker with proper config), enable time sync.
+3) On masters:
+  - Configure keepalived to present VIP (if keepalived runs on masters). Ensure unique VRIDs and priority ordering.
+  - Install kubeadm/kubelet/kubectl and initialize first control plane with kubeadm init --upload-certs --control-plane-endpoint <VIP>:6443.
+  - Join other control plane nodes with kubeadm join --control-plane --certificate-key <key>.
+4) Workers:
+  - Join workers using kubeadm join <VIP>:6443 --token <token> --discovery-token-ca-cert-hash <hash>.
+5) Install CNI (Calico/Cilium) immediately after control plane initialisation.
+6) Deploy ingress-nginx (via Helm) and configure a Service/Ingress to serve the hello-world app.
+7) Set ResourceQuota/LimitRanges and default Pod Security policies or OPA/Gatekeeper if desired.
+
+Resource optimization and tuning
+- Overcommit cautiously:
+  - CPU overcommit allowed, but keep memory headroom to avoid OOM across VMs.
+  - Use ballooning only if predictable; prefer to set conservative memory limits.
+- VM disk format:
+  - Use raw images for best performance, or qcow2 if snapshots/space savings needed.
+  - Use VirtIO SCSI + discard support.
+- Kubelet tuning:
+  - Set eviction thresholds, kube-reserved and system-reserved values based on actual VM resources.
+  - Tune kube-proxy and CNI per workload.
+- Node sizing: label nodes by capacity and use pod anti-affinity and node selectors to pack workloads efficiently.
+
+HA/Failure handling & runbooks
+- Document scenarios:
+  - Node failure (one Proxmox host): how to failover VIP, how to power-on VMs on the surviving host if auto-migration allowed.
+  - Entire control-plane failure: restore from etcd backup.
+- Backups:
+  - etcd: schedule automatic etcd snapshots (store off-host).
+  - VM & storage snapshots: use Proxmox snapshots and replication (if storage supports).
+  - Application backups: Velero to backup cluster resources + PV snapshots.
+- Test failover regularly.
+
+Security & secrets
+- Do NOT store secrets in VM templates. Use Kubernetes secrets and a secret store (Vault, SealedSecrets, or SOPS) for lifecycle management.
+- Use RBAC and network policies (via Calico).
+- Restrict Proxmox access and API tokens; rotate tokens and store secrets in a secure vault/CICD secret store.
+
+Observability & logging
+- Deploy Prometheus + node-exporter + kube-state-metrics + Grafana for monitoring.
+- Use cluster logging (EFK/Fluentd + Elasticsearch or Loki + Promtail + Grafana) for logs.
+
+CI/CD & app deployment
+- Use a GitOps approach (ArgoCD/Flux) to manage manifests and application lifecycle.
+- Store container images in a local registry (Harbor) or remote registry; implement image scanning.
+
+Minimum deliverables for the builder team to implement (ordered)
+1) Proxmox: create cloud-init templates (master and worker).
+2) Proxmox: create VM definitions for 3 masters, 3 workers, and optional 2 LB VMs (or plan keepalived on masters).
+3) Network: assign static IP plan, reserve VIP on LAN, document firewall rules.
+4) Storage: configure ZFS/LVM-thin storage pool, create storage classes plan (Longhorn/local-path).
+5) Bootstrap sequence doc: exact commands for provisioning VMs, OS hardening, kubeadm init/join steps, installing CNI and ingress, and deploying sample app.
+6) Monitoring/backup: install Prometheus & Velero and schedule etcd backups.
+7) Security: secrets workflow and RBAC defaults; do not commit secrets to VCS; use vault/CI secrets.
+8) Validation tests and runbooks: health checks, failover test steps, restore steps.
+
+Example hello-world & ingress workflow (summary)
+- Deploy a simple Deployment (hello-world) with 2 replicas and a Service (ClusterIP).
+- Create an Ingress resource (ingress-nginx) that maps host myapp.local (or chosen domain) to the hello-world Service.
+- Add DNS A record for myapp.local pointing to VIP on LAN (or advise users to add hosts entries for testing).
+- Validate curl http://myapp.local from local LAN clients.
+
+Operational considerations specific to a 2-node Proxmox cluster
+- Two-node physical clusters are operational but increase risk for quorum-based systems (etcd requires odd members). With three master VMs distributed over two physical hosts, you must accept a risk of quorum loss if one physical host fails depending on placement. Strongly recommend a 3rd physical host or an external quorum solution for production-grade HA.
+- If a 3rd physical host cannot be added, prepare clear operational playbooks for failover and restoration; ensure backups exist and test them.
+
+What I will prepare next (if you want): (ready to produce now for execution after @Security_Sentinel review)
+- Exact VM templates & cloud-init configuration examples (no secrets).
+- Exact kubeadm bootstrap sequence and commands (control plane init, join commands, certificates handling).
+- Helm charts/commands for installing Calico/Cilium, ingress-nginx, and the hello-world app.
+- Keepalived + HAProxy configuration for VIP and LB forwarding.
+- Proxmox placement tips and example resource allocations for each VM.
+- Runbooks for backup/restore, failover tests, and monitoring dashboards.
+
+Action requested (for security review)
+- @Security_Sentinel — please review this plan, call out any security policy or token/credential handling constraints I should incorporate, and confirm any org-required controls (token rotation, secret stores, network ACL constraints). Once you reply APPROVED I will prepare the exact, copy-paste operational artifacts (cloud-init snippets, kubeadm commands, keepalived/HAProxy configs, and Helm install commands) for the builder team to execute. If you require any remediation steps related to repo/credential hygiene prior to providing artifacts, include those instructions in your reply.
+
+Note: Per process, I am only tagging you for review at this stage. I will not instruct the builder team to execute anything until I see your explicit APPROVED.
+[Security_Sentinel::think]: Processing message from Architect_Zero...
+[Security_Sentinel::think]: 💭 Thinking step 1/20...
+[Security_Sentinel]: STOP @Architect_Zero
+
+Findings (critical) and required fixes (do these now)
+
+1) Committed secrets present in repo (terraform.auto.tfvars / terraform.tfvars)
+- Risk: tokens in tracked files (even placeholders) are a secret-exposure risk — treat as compromised if real values were ever used.
+- Fix (non-destructive, immediate):
+  - Remove from git index: git rm --cached terraform.auto.tfvars || git rm --cached terraform.tfvars || true
+  - Edit local files to remove pm_api_token_id and pm_api_token_secret (or replace with empty placeholders).
+  - Add those tfvars to .gitignore and commit: echo "terraform.auto.tfvars" >> .gitignore; echo "terraform.tfvars" >> .gitignore; git add .gitignore && git commit -m "Ignore local Terraform var files containing secrets"
+  - Rotate/revoke any tokens that were ever used/in the repo or CI history before reuse. Create new minimal-scope tokens and store only in a secrets manager or CI secret store.
+
+2) Terraform variables not marked sensitive
+- Risk: Terraform may log or expose token values.
+- Fix:
+  - Edit variables.tf to set sensitive = true for pm_api_token_id and pm_api_token_secret (see example below).
+  - Commit the change.
+
+3) Provider source casing mismatch
+- Risk: provider resolution mapping issues causing unexpected provider mapping or install failures.
+- Fix:
+  - Change provider.tf: source = "Telmate/proxmox" -> source = "telmate/proxmox"
+  - git add provider.tf && git commit -m "Normalize proxmox provider source to telmate/proxmox"
+  - Run terraform init -upgrade and verify provider mapping; if necessary remove .terraform and lock file and re-init.
+
+4) Secrets in VM templates / bootstrap artifacts
+- Risk: embedding secrets (cloud-init user-data with passwords or keys) in templates or repo.
+- Fix:
+  - Do NOT store secrets in templates or checked-in cloud-init files.
+  - Use cloud-init only for non-sensitive configuration; inject secrets at provisioning time from a secrets manager or CI secret store.
+  - Store SSH public keys only (no private keys) in templates.
+
+5) Kubernetes secret & runtime hardening
+- Risk: pods running as root / privileged containers and weak pod security posture.
+- Fix:
+  - Enforce PodSecurity (restricted baseline) or use PodSecurityAdmission, and set securityContext for pods/containers to runAsNonRoot: true, readOnlyRootFilesystem: true where possible.
+  - Avoid privileged containers unless explicitly required; audit any DaemonSet/privileged workloads (eg. hostNetwork ingress) and document justification.
+  - Use RBAC least privilege, network policies, and a secret store (Vault or SealedSecrets); do not commit Kubernetes secrets to VCS.
+
+6) etcd/quorum risk on a 2-node physical cluster
+- Risk: three control-plane VMs spread across two physical hosts can lead to quorum loss if one physical host fails (etcd requires an odd number of reliable members).
+- Fix/mitigation:
+  - Strongly recommend adding a 3rd physical host or an external odd-member quorum (external etcd or reliable third-party quorum).
+  - If 3rd host cannot be added, consider alternative control-plane designs (k3s with Dqlite but still requires odd members) or clear documented operational runbooks, and automated etcd snapshots to restore quickly. Document and accept residual risk.
+
+7) Network exposure / ingress VIP
+- Risk: exposing ingress/API to LAN without ACLs or firewall rules may expose services unintentionally.
+- Fix:
+  - Restrict access via firewall rules or VLAN segmentation; limit VIP exposure to required CIDR(s).
+  - Ensure management APIs (Proxmox API, kube-apiserver) are not broadly exposed to LAN unless necessary; use ACLs, TLS, and authentication.
+  - Ensure keepalived/HAProxy configuration does not listen on 0.0.0.0 unnecessarily (bind to the specific LAN interface).
+
+8) CI / repo hygiene & detection
+- Risk: recurrence of secret leaks.
+- Fix:
+  - Add pre-commit secret scanning (gitleaks/detect-secrets) and enforce in CI.
+  - Enforce policy to never commit tfvars/secret-containing files and document local workflows.
+
+Immediate action checklist (priority order)
+1) Remove tracked tfvars from VCS (git rm --cached ...), remove secrets from files, add to .gitignore, and commit.
+2) Immediately rotate/revoke any tokens that may have been committed or exposed.
+3) Mark Terraform variables sensitive = true.
+4) Move secret injection to CI/secret manager (TF_VAR_ env or secrets) — do not reintroduce secret values into VCS.
+5) Normalize provider source casing and reinit Terraform (after secrets removal).
+6) Add pre-commit secret scanning and .gitignore entries.
+7) Harden Kubernetes: PodSecurity, runAsNonRoot, avoid privileged containers, RBAC least-privilege, network policies.
+8) Mitigate quorum risk: add 3rd host or accept and document risk + runbooks; ensure reliable etcd backups.
+9) Ensure VIP and ingress exposure limited by firewall/ACL; avoid 0.0.0.0 binds when not required.
+
+If you want I will produce the exact diffs and one-line commands for each of the non-destructive remediation steps and the Kubernetes security manifests (PodSecurity snippet, securityContext examples) after you confirm.
+[Architect_Zero::think]: Processing message from Security_Sentinel...
+[Architect_Zero::think]: 💭 Thinking step 1/20...
+[Architect_Zero]: @Security_Sentinel — for your review: detailed infrastructure & execution plan to configure the 2-node Proxmox cluster to host a highly available Kubernetes cluster (HA control plane, workers, ingress reachable from the LAN) with resource-optimization, security controls, and runbooks. I will not instruct the builder team to execute anything until you reply APPROVED.
+
+Top-level constraints & security preconditions (must be completed before provisioning)
+- Treat any credentials previously committed to VCS as compromised. Ensure tokens are rotated/revoked and new tokens stored only in a secrets manager or CI secrets store.
+- Do not embed secrets in VM templates, cloud-init user-data, or repo artifacts. Only public SSH keys allowed in templates.
+- Ensure Proxmox API access and admin credentials are limited and rotated. Record who has admin privileges and where secrets live.
+- Confirm network VLANs/CIDRs for management and workload traffic and an available LAN IP for the ingress VIP.
+
+Goals
+- Deploy a HA upstream-like Kubernetes control plane (3 control-plane VMs) and a minimum of 3 worker VMs, optimized for available Proxmox resources.
+- Provide an HA inbound path for ingress traffic via a VIP on the LAN (keepalived/Haproxy on masters or dedicated LB VMs).
+- Deploy an ingress controller (ingress-nginx or Traefik) and a simple hello-world application exposed via Ingress.
+- Implement storage for workloads (Longhorn recommended for HA across few nodes), monitoring, backups, and security hardening.
+
+High-level topology
+- Physical: node-a and node-b (Proxmox hosts)
+- Storage: ZFS recommended on Proxmox; LVM-thin acceptable
+- Networking:
+  - Bridge to LAN (vmbr0) for VMs so they have LAN-accessible IPs.
+  - Reserve a floating IP/VIP on LAN for ingress/API.
+  - Use VLANs or firewall rules to restrict management plane as required.
+- VMs:
+  - Control-plane: 3 VMs (k8s-master-1/2/3) — distribute across physical hosts with anti-affinity rules where possible.
+  - Workers: 3+ VMs (k8s-worker-1/2/3) — spread across hosts.
+  - Optional: 2 small LB VMs (keepalived+HAProxy) instead of running keepalived on masters (can reduce risk of binding cluster operations to control-plane VMs).
+- CNI: Calico (default recommendation) or Cilium if eBPF benefits are desired and host/kernel support exists.
+- Storage class: Longhorn for HA block storage across VMs (suitable for small clusters). Local-path for simple single-node PVs only.
+
+VM template and sizing guidelines
+- Base image: Ubuntu LTS (22.04+) or Debian 12; install and enable qemu-guest-agent and cloud-init.
+- Template tuning:
+  - Disk bus: VirtIO SCSI
+  - NIC: VirtIO (virtio-net)
+  - Use fixed root disk size appropriate to workloads, prefer raw format on performant pools or qcow2 if snapshots/space are important.
+  - Do not include secrets in cloud-init user-data. Only include SSH public keys.
+- Suggested initial sizes (adjust to actual host capacity):
+  - Control-plane (x3): 4 vCPU, 12–16 GiB RAM, 80–100 GiB disk
+  - Worker (x3): 4 vCPU, 16–32 GiB RAM, 100–200 GiB disk (depends on workloads)
+  - LB VM (if used, x2): 1–2 vCPU, 1–2 GiB RAM, small disk
+- Resource considerations:
+  - With only two physical hosts, ensure sufficient headroom on each host for failover (if one host fails, remaining host must be able to host additional VMs or accept degraded operation).
+  - Document the risk: etcd quorum for a 3-member cluster distributed on two hosts is fragile if one host fails. Strongly recommend a third physical host or an external quorum node.
+
+VM placement & anti-affinity strategy
+- Tag VMs or use Proxmox placement constraints to spread masters/workers between node-a and node-b.
+- Accept and document failure scenarios:
+  - If masters 1 & 3 are on node-a and master 2 on node-b, losing node-a leaves only one master — quorum lost.
+- If third physical host cannot be added, include a clear operational runbook for manual failover and etcd restore.
+
+Network plan
+- Management bridge (vmbr0) bridged to LAN: VMs receive LAN IPs and VIP.
+- VIP: choose a LAN IP and reserve it in DHCP/static resources.
+- Firewalling:
+  - Restrict kube-apiserver (TCP 6443) access to the management subnet/CIDR and CI runners if needed.
+  - Restrict Proxmox API to admin hosts.
+  - For ingress VIP, restrict allowed source CIDRs if you don’t want global LAN access.
+- Hostnames and DNS:
+  - Add DNS A records pointing service hostnames (e.g., myapp.local) to the VIP, or advise local hosts file edits for testing.
+
+Bootstrap approach (recommended): kubeadm with external VIP
+- Reason: kubeadm is upstream, well-understood, and supports multi-control-plane via an external load balancer/VIP.
+- VIP options:
+  - Option A (preferred for simplicity): keepalived running on control-plane VMs to provide VIP (each master runs keepalived).
+  - Option B: Two small dedicated LB VMs (keepalived + HAProxy) to present VIP and forward to kube-apiserver ports on masters.
+- Steps overview (operational, not commands):
+  1. Provision VMs from templates with static IPs and SSH keys.
+  2. Harden OS: disable swap, configure sysctl for Kubernetes networking, install and configure container runtime (containerd recommended), enable and start required services.
+  3. Configure keepalived on whichever nodes you choose to host VIP (masters or LB VMs); ensure VRRP priority and interface binding is correct and that it does not bind to 0.0.0.0.
+  4. Install kubeadm/kubelet/kubectl on control-plane VMs.
+  5. Initialize the first control plane with kubeadm init using control-plane-endpoint set to VIP:6443 and upload-certs for certificate distribution.
+  6. Join the other control-plane nodes as control-plane members using kubeadm join with the certificate key.
+  7. Join worker nodes using kubeadm join via the VIP.
+  8. Install CNI (Calico/Cilium) immediately after control plane is up.
+  9. Deploy Longhorn (or chosen storage) after CNI is ready so dynamic PVs are available.
+
+Ingress: HA and LAN access
+- Ingress controller: ingress-nginx (Deployment + Service) is recommended for immediate compatibility. Traefik is another valid choice.
+- Expose ingress via:
+  - Approach A: ingress-nginx NodePort service; keepalived/HAProxy forwards 80/443 to nodes on NodePort.
+  - Approach B: ingress-nginx with DaemonSet and hostNetwork (binds directly to host network) — careful with privileges.
+- Prefer HAProxy in front (or keepalived on masters) that routes 80/443 to the ingress controller Service endpoints.
+- Ensure keepalived/HAProxy binds to the specific LAN interface and limit source ranges via firewall where required.
+- DNS: create an A record for the app domain pointing to VIP so local clients can reach it.
+
+Hello-world app deployment (validation)
+- Deploy a small Deployment with 2 replicas running a simple HTTP response (nginx or a small app).
+- Expose as ClusterIP Service.
+- Create an Ingress resource (host-based) mapping host myapp.local to the hello-world service.
+- Validate from LAN client: curl http://myapp.local (DNS entry points to VIP).
+
+Storage recommendation
+- Longhorn: good fit for HA block storage on small K8s clusters; runs as a DaemonSet and handles replication.
+- If storage performance is critical and a shared storage backend exists, consider Rook/Ceph (but requires more resources).
+- Create a storage class for Longhorn and set it as default for dynamic PVC provisioning.
+
+Monitoring, logging & backups
+- Monitoring: Deploy Prometheus + node-exporter + kube-state-metrics + Grafana for cluster and host metrics.
+- Logging: Loki or EFK (Elasticsearch, Fluentd, Kibana) depending on resource availability. Loki is lightweight.
+- Backups:
+  - etcd snapshots: configure automatic etcd snapshots and store off-cluster.
+  - Velero for cluster resource + PV backups (requires object storage target).
+  - Regular Proxmox VM snapshots and replication if supported by storage.
+
+Security hardening (must-do)
+- Kubernetes:
+  - Enable PodSecurity admission or PodSecurityPolicy equivalent to enforce runAsNonRoot, readOnlyRootFilesystem, and drop capabilities.
+  - Enforce RBAC least-privilege for service accounts, admin access.
+  - Network policies via Calico to limit pod-to-pod communication.
+  - Use SealedSecrets, SOPS, or Vault to manage sensitive configuration; never commit secrets to Git.
+  - Audit and limit privileged containers/hostNetwork usage; only allow when necessary with documented justification.
+- Proxmox:
+  - Limit API access, rotate tokens, and use least privilege for automation tokens.
+  - Keep Proxmox and host OS up to date and patched.
+
+Operational runbooks & tests (deliverables)
+- Provisioning runbook: step-by-step from VM template clone -> cloud-init -> OS hardening -> kubeadm init/join -> CNI -> storage -> ingress -> app deploy.
+- Backup & restore runbook:
+  - How to restore etcd from snapshot.
+  - How to restore cluster resources via Velero.
+  - How to re-provision VMs or recover VMs from Proxmox snapshots.
+- Failover tests:
+  - Simulate single control-plane VM failure and validate VIP failover and API availability.
+  - Simulate single physical host failure (node-a or node-b) and confirm worker workloads and ingress reachability (document expected degraded behavior).
+- Security checklist: token rotation, secrets handling, RBAC verification, pod security verification.
+
+Optimization & tuning guidance
+- Node kubelet reservations: set kube-reserved and system-reserved to ensure system stability.
+- Memory: prefer conservative reservations to avoid OOM under contention — test with representative workloads.
+- Disk: use appropriate recordsize and compression settings for ZFS; consider separate pools for VM disks vs backups.
+- CPU: safe overcommit; monitor for CPU saturation and tune vCPU allocations.
+
+Minimum deliverables I will prepare next (once @Security_Sentinel approves)
+- Exact cloud-init templates (no secrets) for master and worker VMs (public-key only).
+- Step-by-step kubeadm bootstrap script/sequence (control plane init, join instructions with placeholders for cert keys/tokens).
+- Keepalived + HAProxy config examples (interface binding, VRRP config) and notes for running on masters vs dedicated LB VMs.
+- Helm charts/commands for Calico, ingress-nginx, Longhorn, Prometheus, and a simple hello-world app manifest.
+- Runbook snippets for backup/restore and failover tests.
+- PodSecurity and securityContext manifest snippets and recommended Gatekeeper/PSP policies.
+- DNS/hosts sample entries for local network validation.
+
+Action requested from @Security_Sentinel
+- Review the plan above for security concerns, confirm any organization-specific requirements (e.g., mandatory Vault usage, disallowed components, firewall/VLAN constraints, token rotation cadence).
+- If acceptable, reply APPROVED. Once you reply APPROVED I will prepare the exact execution artifacts (cloud-init snippets, templated kubeadm commands with placeholders, keepalived/HAProxy configs, Helm install sequences, and runbooks) for the builder team to execute. I will not tag or instruct the builder team until I receive your APPROVED.
+
+Notes
+- Given the 2-node physical constraint, highlight again: a 3-member etcd stretched across 2 hosts is fragile for quorum. If you require production-grade HA, plan for a third physical node, or an externally hosted odd-member quorum.
+- All artifacts I prepare will avoid embedding secrets; they will contain placeholders and instructions to inject values via CI/secret store.
+[Security_Sentinel::think]: Processing message from Architect_Zero...
+[Security_Sentinel::think]: 💭 Thinking step 1/20...
+[Security_Sentinel]: STOP @Architect_Zero
+
+Findings (critical) — immediate remediation required before any provisioning
+1) Hardcoded / committed secrets
+- Risk: Previously tracked terraform.auto.tfvars / terraform.tfvars contain pm_api_token_id and pm_api_token_secret (even placeholders). Any secrets present in repo or templates must be treated as compromised.
+- Fix:
+  - Remove secrets from VCS immediately: git rm --cached terraform.auto.tfvars || git rm --cached terraform.tfvars || true
+  - Edit local files to remove values or replace with empty placeholders.
+  - Add terraform.auto.tfvars and terraform.tfvars to .gitignore and commit.
+  - Rotate/revoke any Proxmox API tokens that may have been used and create new, minimal-scope tokens. Do NOT store new tokens in VCS.
+  - Use a secrets manager or CI secret store; inject via TF_VAR_pm_api_token_id / TF_VAR_pm_api_token_secret environment variables or Vault at runtime.
+
+2) Terraform variables not marked sensitive
+- Risk: Terraform logs/plan outputs may expose secrets.
+- Fix:
+  - Mark secret variables sensitive = true in variables.tf for pm_api_token_id and pm_api_token_secret (and any other secret variables).
+  - Re-run terraform workflows after secrets removed from repo.
+
+3) Provider source casing mismatch
+- Risk: provider resolution issues due to incorrect casing ("Telmate/proxmox").
+- Fix:
+  - Change provider.tf source to "telmate/proxmox" (lowercase) and terraform init -upgrade. If provider mapping issues occur, clear .terraform and .terraform.lock.hcl and re-init.
+
+4) Cloud-init / VM templates embedding secrets or credentials
+- Risk: Templates or checked-in cloud-init user-data containing passwords, private keys, or API tokens leak secrets.
+- Fix:
+  - Remove any secret-containing cloud-init files from repo; only public SSH keys are allowed in templates.
+  - Use dynamic injection from CI/secret manager at provisioning time; never check private keys/passwords into templates.
+
+5) Privileged/root containers and hostNetwork usage risk
+- Risk: Running ingress or other workloads with privileged: true or hostNetwork or using hostPath mounts without strict controls increases attack surface.
+- Fix:
+  - Enforce PodSecurity (restricted/baseline) or admission controllers to block privileged containers by default.
+  - Avoid hostNetwork/hostPID/hostIPC unless strictly necessary; if used, document and justify, and restrict via RBAC and NetworkPolicy.
+  - Ensure ingress controller runs with least privileges; prefer Service type with HAProxy/keepalived fronting rather than hostNetwork unless validated.
+
+6) 0.0.0.0 / wildcard binding risk in HAProxy/keepalived
+- Risk: Binding HAProxy/keepalived to 0.0.0.0 can expose services on unintended interfaces or networks.
+- Fix:
+  - Bind keepalived/HAProxy to the specific LAN interface (e.g., vmbr0) and to the reserved VIP only. Do not use 0.0.0.0.
+  - Restrict source CIDRs via firewall where possible. Document and enforce interface-specific binds in configs.
+
+7) etcd/quorum risk on a 2-node physical cluster
+- Risk: Running 3 etcd members across 2 physical hosts leads to fragile quorum and possible total cluster outages if a host fails.
+- Fix / mitigation options:
+  - Strongly recommend adding a third physical host for quorum.
+  - If not possible, consider an external odd-member quorum (external etcd on a different reliable host), or use a control-plane design that tolerates split-host placement with documented acceptance of risk.
+  - Ensure frequent, off-host etcd snapshots and tested restore runbooks.
+
+8) Network exposure of management APIs
+- Risk: Exposing kube-apiserver or Proxmox API broadly to the LAN without ACLs.
+- Fix:
+  - Restrict kube-apiserver (6443) and Proxmox API access to required CIDRs only; use firewall rules or VLAN segmentation.
+  - Use mTLS/TLS and strict authentication for API access. Do not expose admin APIs to entire LAN.
+
+9) Lack of automated secret scanning and prevention guardrails
+- Risk: Reintroduction of secrets into repo.
+- Fix:
+  - Add pre-commit and CI-level secret scanning (gitleaks, detect-secrets) and enforce in CI gates.
+  - Add .gitignore entries and document secret handling best practices.
+
+Required immediate checklist (do these now, in order)
+1) Remove tracked tfvars from repo and add to .gitignore; commit the change.
+2) Rotate/revoke any potentially exposed Proxmox tokens and issue new minimal-scope tokens stored only in a secrets manager/CI secrets store.
+3) Mark Terraform secret variables sensitive = true.
+4) Remove any cloud-init or template-embedded secrets; update templates to use public SSH keys only.
+5) Update provider.tf source to "telmate/proxmox" and re-init Terraform after secrets removal.
+6) Add/pre-commit secret scanning and CI enforcement to prevent recurrence.
+7) Constrain HAProxy/keepalived binds to the specific LAN interface and avoid 0.0.0.0.
+8) Enforce PodSecurity Admission / PSP alternatives to deny privileged containers by default; add securityContext defaults for runAsNonRoot and readOnlyRootFilesystem.
+9) Document and accept or mitigate etcd quorum risk: add a third physical host or external odd-member quorum; ensure tested etcd backup/restore runbook.
+
+Notes / additional required checks before builder execution
+- Confirm where new Proxmox API tokens will be stored (Vault or CI secret store) and who has access.
+- Ensure cloud-init injection workflows pull secrets at provisioning time (not from repo).
+- Provide keepalived/HAProxy configs that explicitly bind to vmbr0 (or specified interface) and contain no 0.0.0.0 binds.
+- Provide pod security manifest snippets and RBAC least-privilege examples with any execution artifacts.
+
+I will not prepare operational artifacts until the immediate remediation items above are completed and tokens rotated. Once the secrets are removed, variables marked sensitive, provider source normalized, and a secrets-store workflow is chosen, I will re-review and then approve or provide final fixes.
+[Architect_Zero::think]: Processing message from Security_Sentinel...
+[Architect_Zero::think]: 💭 Thinking step 1/20...

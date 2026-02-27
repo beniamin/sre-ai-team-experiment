@@ -1,0 +1,26 @@
+- name: Ensure automation user exists
+  user:
+    name: "{{ automation_user }}"
+    shell: /bin/bash
+    state: present
+    create_home: yes
+
+- name: Ensure .ssh directory exists
+  file:
+    path: "/home/{{ automation_user }}/.ssh"
+    state: directory
+    owner: "{{ automation_user }}"
+    group: "{{ automation_user }}"
+    mode: '0700'
+
+- name: Add provided public key
+  authorized_key:
+    user: "{{ automation_user }}"
+    key: "{{ automation_pubkey }}"
+    state: present
+
+- name: Configure minimal sudoers for readonly commands
+  copy:
+    dest: "/etc/sudoers.d/{{ automation_user }}-readonly"
+    content: "{{ automation_user }} ALL=(ALL) NOPASSWD: /bin/hostnamectl, /usr/sbin/ip, /sbin/ip, /usr/bin/pvecm, /usr/bin/corosync-cfgtool, /bin/lsblk, /sbin/zpool, /usr/sbin/pvesm, /usr/sbin/qm, /usr/sbin/pct, /bin/cat, /bin/systemctl\n"
+    mode: '0440'

@@ -1,0 +1,50 @@
+---
+- name: Setup STONITH fencing agents (gated)
+  hosts: proxmox
+  become: true
+  vars:
+    stonith_enabled: false
+    fence_test_confirm: false
+    bmc_user: "<BMC_USER>"
+    bmc_pass: "<BMC_PASS>"
+  tasks:
+    - name: Fail if stonith_enabled is not true
+      fail:
+        msg: "STONITH play is gated. Set stonith_enabled: true and provide BMC creds to proceed."
+      when: not stonith_enabled
+
+    - name: Install fence-agents package
+      apt:
+        name: fence-agents
+        state: present
+      when: stonith_enabled
+
+    - name: Configure fence agent for node (template)
+      copy:
+        dest: /etc/fence.d/agents/ipmi.conf
+        content: |
+          [default]
+          user={{ bmc_user }}
+          password={{ bmc_pass }}
+      when: stonith_enabled
+
+    - name: Dry-run fence-agent query
+      shell: fence_ipmilan -a {{ inventory_hostname }} -o status || true
+      register: fence_dry
+      when: stonith_enabled
+
+    - name: Show fence dry-run
+      debug:
+        var: fence_dry.stdout_lines
+      when: stonith_enabled
+
+    - name: Operator-confirmed destructive fence test
+      shell: fence_ipmilan -a {{ inventory_hostname }} -o off
+      when: stonith_enabled and fence_test_confirm
+      register: fence_result
+      failed_when: fence_result.rc != 0
+
+    - name: Fail if operator did not confirm
+      fail:
+        msg: "Destructive fence test not confirmed. Set fence_test_confirm: true to run it."
+      when: stonith_enabled and not fence_test_confirm

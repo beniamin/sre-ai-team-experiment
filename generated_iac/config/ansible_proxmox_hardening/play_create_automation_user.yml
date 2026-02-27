@@ -1,0 +1,56 @@
+---
+- name: Create automation user and harden SSH
+  hosts: proxmox
+  become: true
+  vars:
+    automation_user: builder-admin
+    automation_pubkey: "<BOOTSTRAP_SSH_PUBKEY>"
+  tasks:
+    - name: Ensure automation user exists
+      user:
+        name: "{{ automation_user }}"
+        shell: /bin/bash
+        state: present
+        create_home: yes
+
+    - name: Create .ssh directory
+      file:
+        path: "/home/{{ automation_user }}/.ssh"
+        state: directory
+        owner: "{{ automation_user }}"
+        group: "{{ automation_user }}"
+        mode: '0700'
+
+    - name: Install authorized_keys (placeholder)
+      copy:
+        content: "{{ automation_pubkey }}\n"
+        dest: "/home/{{ automation_user }}/.ssh/authorized_keys"
+        owner: "{{ automation_user }}"
+        group: "{{ automation_user }}"
+        mode: '0600'
+
+    - name: Create minimal sudoers for automation user
+      copy:
+        dest: /etc/sudoers.d/automation_readonly
+        content: |
+          {{ automation_user }} ALL=(ALL) NOPASSWD: /bin/hostnamectl, /sbin/ip, /usr/bin/ip, /usr/bin/pvecm, /usr/bin/corosync-cfgtool, /bin/lsblk, /sbin/zpool, /usr/sbin/pvesm, /usr/sbin/qm, /usr/sbin/pct, /bin/cat, /bin/systemctl
+        owner: root
+        group: root
+        mode: '0440'
+
+    - name: Ensure SSH root password login disabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin prohibit-password'
+        backup: yes
+
+    - name: Restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    - name: Fail if automation_pubkey placeholder not replaced
+      fail:
+        msg: "Please provide a real bootstrap public key via automation_pubkey variable."
+      when: automation_pubkey is search("<BOOTSTRAP_SSH_PUBKEY>")

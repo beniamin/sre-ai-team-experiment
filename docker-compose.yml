@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  redis-broker:
+    image: redis:alpine
+    container_name: redis-broker
+    ports:
+      - "6379:6379"
+    networks:
+      - a2a-net
+
+  agent-architect:
+    build: ./agents
+    container_name: agent-architect
+    environment:
+      - AGENT_ROLE=Architect_Zero
+      - REDIS_HOST=redis-broker
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen/qwen2.5-coder-14b}
+    volumes:
+      - ./generated_iac/infra:/app/infra
+      - ./generated_iac/config:/app/config
+      - ./docs:/app/docs
+    depends_on:
+      - redis-broker
+    networks:
+      - a2a-net
+
+  agent-devops:
+    build: ./agents
+    container_name: agent-devops
+    environment:
+      - AGENT_ROLE=DevOps_Builder
+      - REDIS_HOST=redis-broker
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen/qwen2.5-coder-14b}
+      # Proxmox Credentials for Terraform
+      - TF_VAR_pm_api_url=${PM_API_URL}
+      - TF_VAR_pm_api_token_id=${PM_TOKEN_ID}
+      - TF_VAR_pm_api_token_secret=${PM_TOKEN_SECRET}
+      - TF_VAR_pm_tls_insecure=false
+      - TF_VAR_pm_ca_file=/tmp/app/pm_ca.pem
+      # SSH Access to Proxmox Hosts
+      - SSH_USER=${SSH_USER:-root}
+      - BOOTSTRAP_SSH_KEY=/tmp/app/bootstrap_id_rsa
+    volumes:
+      - ./generated_iac/infra:/app/infra
+      - ./generated_iac/config:/app/config
+      - ./tmp:/tmp/app
+      - ./docs:/app/docs
+    depends_on:
+      - redis-broker
+    networks:
+      - a2a-net
+
+  agent-security:
+    build: ./agents
+    container_name: agent-security
+    environment:
+      - AGENT_ROLE=Security_Sentinel
+      - REDIS_HOST=redis-broker
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen/qwen2.5-coder-14b}
+    depends_on:
+      - redis-broker
+    volumes:
+      - ./generated_iac/infra:/app/infra
+      - ./generated_iac/config:/app/config
+      - ./tmp:/tmp/app
+      - ./docs:/app/docs
+    networks:
+      - a2a-net
+
+  agent-qa:
+    build: ./agents
+    container_name: agent-qa
+    environment:
+      - AGENT_ROLE=QA_Tester
+      - REDIS_HOST=redis-broker
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen/qwen2.5-coder-14b}
+    volumes:
+      - ./generated_iac/infra:/app/infra
+      - ./generated_iac/config:/app/config
+      - ./docs:/app/docs
+    depends_on:
+      - redis-broker
+    networks:
+      - a2a-net
+
+  user-console:
+    build: ./agents # Reusing agent build for simplicity, as it has python/redis
+    container_name: user-console
+    entrypoint: [ "python", "/app/client/console.py" ]
+    environment:
+      - REDIS_HOST=redis-broker
+    volumes:
+      - ./client:/app/client
+    depends_on:
+      - redis-broker
+    networks:
+      - a2a-net
+    stdin_open: true # creating an interactive session
+    tty: true
+
+networks:
+  a2a-net:
+    driver: bridge

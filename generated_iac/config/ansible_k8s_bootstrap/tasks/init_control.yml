@@ -1,0 +1,9 @@
+- name: Initialize kubeadm control plane (first node)
+  command: kubeadm init --control-plane-endpoint "{{ loadbalancer_ip }}:6443" --upload-certs --pod-network-cidr={{ pod_network_cidr }}
+  register: kubeadm_init
+
+- name: Save kubeadm join command
+  command: echo "{{ kubeadm_init.stdout_lines | join('\n') }}" > /tmp/kubeadm_init_output.txt
+
+- name: Copy kubeconfig for admin
+  command: mkdir -p $HOME/.kube && sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config && sudo chown $(id -u):$(id -g) $HOME/.kube/config
