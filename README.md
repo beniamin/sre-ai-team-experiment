@@ -6,7 +6,7 @@
 
 An experiment in building a team of 4 LLM-powered AI agents that communicate over Redis pub/sub to autonomously provision and harden real infrastructure on a 2-node Proxmox VE 9 cluster.
 
-Read the full experiment write-up in [ARTICLE.md](ARTICLE.md).
+Read the full experiment write-up in [EXPERIMENT.md](EXPERIMENT.md).
 
 ---
 
